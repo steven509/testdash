@@ -490,11 +490,11 @@ func countLine(counts map[string]int, total int) string {
 		}
 		if n > 0 {
 			mark, _ := icon(part.status)
-			parts = append(parts, style.Pill(fmt.Sprintf("%s %d %s", mark, n, part.label), part.color, style.Tint(part.color)))
+			parts = append(parts, style.Pill(mark+" "+number(n)+" "+part.label, part.color, style.Tint(part.color)))
 		}
 	}
 	if notRun := counts["idle"] + counts["absent"]; notRun > 0 {
-		parts = append(parts, style.Pill(fmt.Sprintf("%d not run", notRun), style.SubtleText, style.Raised))
+		parts = append(parts, style.Pill(number(notRun)+" not run", style.SubtleText, style.Raised))
 	}
 	parts = append(parts, style.Dim.Render(count(total, "test")))
 	return strings.Join(parts, " ")

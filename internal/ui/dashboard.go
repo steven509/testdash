@@ -47,7 +47,7 @@ func (m *Model) dashboard(width, height int) string {
 		ids = append(ids, e.ID)
 	}
 	if failures := m.failuresIn(ids); failures != "" {
-		b.WriteString("\n" + section("Failures", width, fmt.Sprint(s.failed)) + "\n" + failures)
+		b.WriteString("\n" + section("Failures", width, number(s.failed)) + "\n" + failures)
 	}
 	if m.running() {
 		b.WriteString("\n" + m.activitySection(width))
@@ -180,7 +180,7 @@ func (m *Model) classTable(width int) string {
 	barWidth := max(10, width-nameWidth-countsWidth-17)
 	start, span := m.runSpan()
 	var b strings.Builder
-	b.WriteString(section("Classes", width, fmt.Sprintf("%d of %d done", finished, len(rows))) + "\n")
+	b.WriteString(section("Classes", width, number(finished)+" of "+number(len(rows))+" done") + "\n")
 	b.WriteString(strings.Repeat(" ", nameWidth+3) + axis(barWidth, span) + "\n")
 	nowMillis := time.Now().UnixMilli()
 	for _, r := range rows {
@@ -214,13 +214,13 @@ func (m *Model) classTable(width int) string {
 		}
 		var counts []string
 		if r.passed > 0 {
-			counts = append(counts, style.Green.Render(fmt.Sprintf("%s %d", ic.passed, r.passed)))
+			counts = append(counts, style.Green.Render(ic.passed+" "+compact(r.passed)))
 		}
 		if r.failed > 0 {
-			counts = append(counts, style.Red.Render(fmt.Sprintf("%s %d", ic.failed, r.failed)))
+			counts = append(counts, style.Red.Render(ic.failed+" "+compact(r.failed)))
 		}
 		if r.skipped > 0 {
-			counts = append(counts, style.Yellow.Render(fmt.Sprintf("%s %d", ic.skipped, r.skipped)))
+			counts = append(counts, style.Yellow.Render(ic.skipped+" "+compact(r.skipped)))
 		}
 		took := ""
 		if r.took > 0 {
@@ -231,7 +231,7 @@ func (m *Model) classTable(width int) string {
 			name = style.Bold.Render(r.entry.ShortClass())
 		}
 		b.WriteString(markStyle.Render(mark) + " " + fit(name, nameWidth, true) + " " + style.Cells(cells) + " " +
-			fit(style.Dim.Render(fmt.Sprintf("%d/%d", r.done(), r.total)), 7, false) +
+			fit(style.Dim.Render(compact(r.done())+"/"+compact(r.total)), 7, false) +
 			fit(strings.Join(counts, " "), countsWidth-6, false) + style.Dim.Render(fmt.Sprintf("%6s", took)) + "\n")
 	}
 	return b.String()
@@ -315,7 +315,7 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 			return style.Fail
 		}
 		return style.Pass
-	}, fmt.Sprintf("%d done", done)})
+	}, number(done) + " done"})
 
 	output := m.output.all()
 	gradle := make([]int, buckets)
@@ -344,7 +344,7 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 			}
 			total := count(len(v.events), "request")
 			if missed > 0 {
-				total += style.Red.Render(fmt.Sprintf(" %s %d", ic.failed, missed))
+				total += style.Red.Render(" " + ic.failed + " " + compact(missed))
 			}
 			rows = append(rows, activityRow{kindIcon(entry.svc.Kind), entry.svc.Key, counts, func(i int) color.Color {
 				if unmatched[i] {
@@ -388,7 +388,7 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 			}
 			total := count(len(lines), "line")
 			if entry.problems > 0 {
-				total += style.Yellow.Render(fmt.Sprintf(" %s %d", ic.warning, entry.problems))
+				total += style.Yellow.Render(" " + ic.warning + " " + compact(entry.problems))
 			}
 			base := style.MutedText
 			if entry.svc.IsApp() {

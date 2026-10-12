@@ -2,7 +2,9 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -267,12 +269,44 @@ func duration(millis int64) string {
 
 func count(n int, one string, many ...string) string {
 	if n == 1 {
-		return fmt.Sprintf("%d %s", n, one)
+		return "1 " + one
 	}
 	if len(many) > 0 {
-		return fmt.Sprintf("%d %s", n, many[0])
+		return number(n) + " " + many[0]
 	}
-	return fmt.Sprintf("%d %ss", n, one)
+	return number(n) + " " + one + "s"
+}
+
+// number writes a count with thousands separators: 1,456.
+func number(n int) string {
+	digits := strconv.Itoa(n)
+	sign := ""
+	if n < 0 {
+		sign, digits = "-", digits[1:]
+	}
+	var b strings.Builder
+	for i, digit := range digits {
+		if i > 0 && (len(digits)-i)%3 == 0 {
+			b.WriteByte(',')
+		}
+		b.WriteRune(digit)
+	}
+	return sign + b.String()
+}
+
+// compact rounds a count for a narrow column: 999, 1.5k, 10.5k, 107k, 2.4M.
+func compact(n int) string {
+	if n > -1000 && n < 1000 {
+		return strconv.Itoa(n)
+	}
+	value, unit := float64(n)/1000, "k"
+	if math.Abs(value) >= 999.5 {
+		value, unit = value/1000, "M"
+	}
+	if math.Abs(value) >= 99.95 {
+		return fmt.Sprintf("%.0f%s", value, unit)
+	}
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", value), ".0") + unit
 }
 
 // preview flattens text to one line of at most width characters.

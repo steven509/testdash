@@ -304,7 +304,7 @@ func (m *Model) chooseTask(wanted string, quiet bool) {
 		}
 	}
 	if changed && !quiet && m.testTask != nil {
-		m.notify(fmt.Sprintf("%s: %d tests", m.testTask.Path, len(m.selectable)), "", "information")
+		m.notify(m.testTask.Path+": "+count(len(m.selectable), "test"), "", "information")
 	}
 	m.tree.rebuild(m, true)
 	m.version++
@@ -684,7 +684,8 @@ func (m *Model) unselectPassed() {
 		}
 	}
 	if dropped > 0 {
-		m.notify(fmt.Sprintf("Unselected %s; %d still selected", count(dropped, "passed test"), len(m.selected)),
+		m.notify(fmt.Sprintf("Unselected %s; %s still selected", count(dropped, "passed test"),
+			number(len(m.selected))),
 			"", "information")
 	}
 }
@@ -759,10 +760,11 @@ func (m *Model) runDone(code int) tea.Cmd {
 	summary := m.runSummary()
 	if code == 0 {
 		m.addOutput("passed in "+took, "green")
-		m.notify(fmt.Sprintf("%d tests passed in %s", summary.passed, took), "Passed", "success")
+		m.notify(fmt.Sprintf("%s passed in %s", count(summary.passed, "test"), took), "Passed", "success")
 	} else {
 		m.addOutput(fmt.Sprintf("failed (exit %d) in %s", code, took), "red")
-		m.notify(fmt.Sprintf("%d of %d tests failed (exit %d)", summary.failed, summary.total, code), "Failed", "error")
+		m.notify(fmt.Sprintf("%s of %s tests failed (exit %d)", number(summary.failed), number(summary.total), code),
+			"Failed", "error")
 	}
 	m.updateClaims()
 	m.version++

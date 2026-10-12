@@ -420,6 +420,24 @@ func TestSettingsApp(t *testing.T) {
 	}
 }
 
+func TestNumbers(t *testing.T) {
+	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
+		1234567: "1,234,567", -4200: "-4,200"} {
+		if got := number(n); got != want {
+			t.Errorf("number(%d) = %q, want %q", n, got, want)
+		}
+	}
+	for n, want := range map[int]string{999: "999", 1000: "1k", 1456: "1.5k", 10500: "10.5k", 99960: "100k",
+		107000: "107k", 999499: "999k", 999500: "1M", 2400000: "2.4M"} {
+		if got := compact(n); got != want {
+			t.Errorf("compact(%d) = %q, want %q", n, got, want)
+		}
+	}
+	if got := count(10234, "query", "queries"); got != "10,234 queries" {
+		t.Errorf("count %q", got)
+	}
+}
+
 func TestDuration(t *testing.T) {
 	for millis, want := range map[int64]string{400: "0.4s", 9_950: "9.9s", 12_400: "12s", 75_000: "1:15"} {
 		if got := duration(millis); got != want {

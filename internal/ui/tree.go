@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"fmt"
 	"regexp"
 	"strings"
 
@@ -319,11 +318,11 @@ func (t *testTree) right(m *Model, id string) string {
 		}
 	}
 	if inRun == 0 {
-		return style.Dim.Render(fmt.Sprint(len(leaves)))
+		return style.Dim.Render(compact(len(leaves)))
 	}
-	text := style.Dim.Render(fmt.Sprintf("%d/%d", passed+failed, inRun))
+	text := style.Dim.Render(compact(passed+failed) + "/" + compact(inRun))
 	if failed > 0 {
-		text = style.Red.Render(fmt.Sprintf("%s %d  ", ic.failed, failed)) + text
+		text = style.Red.Render(ic.failed+" "+compact(failed)+"  ") + text
 	}
 	return text
 }
@@ -368,7 +367,7 @@ func (t *testTree) render(m *Model, r rect) []string {
 		chips = append(chips, chip(t.show))
 	}
 	if n := len(m.selected); n > 0 {
-		chips = append(chips, style.Pill(fmt.Sprintf("%d selected", n), style.Primary, style.Raised))
+		chips = append(chips, style.Pill(number(n)+" selected", style.Primary, style.Raised))
 	}
 	title := "Tests"
 	if m.discovering {

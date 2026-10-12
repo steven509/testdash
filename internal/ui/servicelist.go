@@ -193,24 +193,24 @@ func serviceStats(entry *svcEntry) string {
 				unmatched++
 			}
 		}
-		text := style.Dim.Render(fmt.Sprintf("%d req", len(v.events)))
+		text := style.Dim.Render(compact(len(v.events)) + " req")
 		if unmatched > 0 {
-			text += style.Red.Render(fmt.Sprintf(" %s %d", ic.failed, unmatched))
+			text += style.Red.Render(" " + ic.failed + " " + compact(unmatched))
 		}
 		return text
 	case *kafkaView:
 		if v.client.Error() != "" {
 			return style.Red.Render(ic.warning)
 		}
-		return style.Dim.Render(fmt.Sprintf("%d msg", len(v.messages)))
+		return style.Dim.Render(compact(len(v.messages)) + " msg")
 	case *dbView:
 		if v.client != nil && v.client.Error() != "" {
 			return style.Red.Render(ic.warning)
 		}
-		return style.Dim.Render(fmt.Sprintf("%d q", len(v.queries)-v.chatter))
+		return style.Dim.Render(compact(len(v.queries)-v.chatter) + " q")
 	}
 	if entry.problems > 0 {
-		return style.Yellow.Render(fmt.Sprintf("%s %d", ic.warning, entry.problems))
+		return style.Yellow.Render(ic.warning + " " + compact(entry.problems))
 	}
 	return ""
 }

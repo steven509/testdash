@@ -296,7 +296,7 @@ func (v *wiremockView) summary() string {
 			unmatched++
 		}
 	}
-	return fmt.Sprintf("%d requests, %d unmatched, %d stubs", len(v.events), unmatched, len(v.stubs))
+	return count(len(v.events), "request") + ", " + number(unmatched) + " unmatched, " + count(len(v.stubs), "stub")
 }
 
 func (v *wiremockView) render(m *Model, r rect) []string {
@@ -693,7 +693,7 @@ func (v *kafkaView) messagesPane(m *Model, r rect) []string {
 	message, ok := v.byKey[key]
 	headers := "Headers"
 	if ok {
-		headers = fmt.Sprintf("Headers %d", len(message.Headers))
+		headers = "Headers " + number(len(message.Headers))
 	}
 	active := 0
 	if v.showHeaders {
@@ -764,12 +764,12 @@ func (v *kafkaView) fillTopics() {
 		}
 		behind := ""
 		if hasLag[topic] {
-			behind = style.Green.Render(fmt.Sprint(lag[topic]))
+			behind = style.Green.Render(number(int(lag[topic])))
 			if lag[topic] != 0 {
-				behind = style.BoldRed.Render(fmt.Sprint(lag[topic]))
+				behind = style.BoldRed.Render(number(int(lag[topic])))
 			}
 		}
-		v.topicTab.addRow(topic, cleanText(topic), fmt.Sprint(counts[topic]), lastAt, behind)
+		v.topicTab.addRow(topic, cleanText(topic), number(counts[topic]), lastAt, behind)
 	}
 	v.topicTab.cursor = cursor
 }
@@ -796,9 +796,9 @@ func (v *kafkaView) fillGroups() {
 	for _, g := range groups {
 		lag := style.Green.Render("-")
 		if g.Lag != nil {
-			lag = style.Green.Render(fmt.Sprint(*g.Lag))
+			lag = style.Green.Render(number(int(*g.Lag)))
 			if *g.Lag != 0 {
-				lag = style.BoldRed.Render(fmt.Sprint(*g.Lag))
+				lag = style.BoldRed.Render(number(int(*g.Lag)))
 			}
 		}
 		consumer := cleanText(g.Consumer)
@@ -944,7 +944,7 @@ func (v *kafkaView) messagesBetween(w *window) []kafka.Message {
 func describeMessage(message kafka.Message) string {
 	text := messageHeading(message) + "\n" + messageValue(message)
 	if len(message.Headers) > 0 {
-		text += "\n\n" + section("Headers", 72, fmt.Sprint(len(message.Headers))) + "\n" + messageHeaders(message, 72)
+		text += "\n\n" + section("Headers", 72, number(len(message.Headers))) + "\n" + messageHeaders(message, 72)
 	}
 	return text
 }
@@ -1140,9 +1140,9 @@ func (v *dbView) summary() string {
 	if v.client != nil && v.client.Error() != "" {
 		return "cannot read queries: " + cleanText(v.client.Error())
 	}
-	text := fmt.Sprintf("%d queries", len(v.queries)-v.chatter)
+	text := count(len(v.queries)-v.chatter, "query", "queries")
 	if v.chatter > 0 {
-		text += fmt.Sprintf(", %d session chatter", v.chatter)
+		text += ", " + number(v.chatter) + " session chatter"
 	}
 	return text
 }

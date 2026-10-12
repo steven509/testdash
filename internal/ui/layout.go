@@ -64,7 +64,7 @@ func (m *Model) runLine() string {
 		if m.testTask == nil {
 			return ""
 		}
-		return style.Dim.Render(fmt.Sprintf("%d tests ready · ", len(m.selectable))) + style.AccentText.Render("r") +
+		return style.Dim.Render(count(len(m.selectable), "test")+" ready · ") + style.AccentText.Render("r") +
 			style.Dim.Render(" "+strings.ToLower(m.runLabel()))
 	case !m.running():
 		return style.Dim.Render(m.displayCommand())
@@ -78,7 +78,7 @@ func (m *Model) runLine() string {
 	line := style.Cyan.Render(m.spinnerFrame()+" ") + style.Muted.Render(strings.Join(m.groupOf(r.entry), " › ")+" › ") +
 		style.BoldCyan.Render(cleanText(r.entry.Name)) + style.Dim.Render("  "+duration(took))
 	if len(s.running) > 1 {
-		line += style.Dim.Render(fmt.Sprintf("  +%d more", len(s.running)-1))
+		line += style.Dim.Render("  +" + number(len(s.running)-1) + " more")
 	}
 	return line
 }
@@ -97,7 +97,7 @@ func (m *Model) counts() string {
 	}{{s.passed, "passed", style.Pass}, {s.failed, "failed", style.Fail}, {s.skipped, "skipped", style.Warn},
 		{s.left, "pending", style.MutedText}} {
 		mark, _ := icon(part.status)
-		text := fmt.Sprintf("%s %d", mark, part.n)
+		text := mark + " " + number(part.n)
 		if part.n == 0 {
 			parts = append(parts, style.Dim.Render(text))
 		} else {
