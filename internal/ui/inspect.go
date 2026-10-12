@@ -573,7 +573,7 @@ func (m *Model) welcome(width int) string {
 			style.Bold.Render(count(classes, "class", "classes")) + style.Muted.Render(" in ") +
 			style.Pill(m.testTask.Path, style.Teal, style.Raised) + "\n\n")
 	} else {
-		b.WriteString(style.Muted.Render(m.noTaskReason()) + "\n\n")
+		b.WriteString(strings.Join(m.noTaskReason(), "\n") + "\n\n")
 	}
 	keys := [][2]string{
 		{"r", "run everything, or the tests you selected"},

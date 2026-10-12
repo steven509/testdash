@@ -601,6 +601,25 @@ func TestSettingsApp(t *testing.T) {
 	}
 }
 
+func TestWithoutABuildItSaysWhatToDo(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	m := New(context.Background(), Options{Workdir: t.TempDir(), RunDir: t.TempDir()}, settings.Defaults())
+	m.Update(tea.WindowSizeMsg{Width: 140, Height: 30})
+	s := screen(m)
+	if strings.Count(s, "testdash -- npm test") != 2 || !strings.Contains(s, "Start testdash in a Gradle repo") {
+		t.Errorf("the tests and the details both say to start in a Gradle repo or give a whole command:\n%s", s)
+	}
+	rows := strings.Split(s, "\n")
+	for i, row := range rows {
+		if tests, _, _ := strings.Cut(row, "││"); strings.Contains(tests, "like this:") {
+			if next, _, _ := strings.Cut(rows[i+1], "││"); strings.Trim(next, "│ ") != "" {
+				t.Errorf("a blank line comes before the example in the tests: %q", next)
+			}
+		}
+	}
+}
+
 func TestFooterShowsZoom(t *testing.T) {
 	m := testModel(t)
 	lines := strings.Split(screen(m), "\n")

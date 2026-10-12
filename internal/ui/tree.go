@@ -366,7 +366,12 @@ func (t *testTree) render(m *Model, r rect) []string {
 	}
 	if m.testTask == nil {
 		content = append(content, "")
-		content = append(content, wrapLines(style.Muted.Render(m.noTaskReason()), inner.w)...)
+		for _, line := range m.noTaskReason() {
+			if line == "" {
+				content = append(content, "")
+			}
+			content = append(content, wrapLines(line, inner.w)...)
+		}
 	} else {
 		content = append(content, t.rows(m, rect{inner.x, y, inner.w, inner.h - len(content)}, m.focus == t)...)
 	}

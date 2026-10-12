@@ -501,16 +501,18 @@ func (m *Model) failedIDs() map[string]bool {
 	return failed
 }
 
-func (m *Model) noTaskReason() string {
+// noTaskReason says why there is no test list, as lines to show.
+func (m *Model) noTaskReason() []string {
 	switch {
 	case m.opts.Command != nil && !m.commandIsGradle():
-		return "Not a Gradle command, so there is no test list. r runs the command."
+		return []string{style.Muted.Render("Not a Gradle command, so there is no test list. r runs the command.")}
 	case m.discovering:
-		return "Listing the build's tests with Gradle…"
+		return []string{style.Muted.Render("Listing the build's tests with Gradle…")}
 	case m.opts.BuildRoot == "":
-		return "No Gradle build here and no command: pass one after --"
+		return []string{style.Muted.Render("No Gradle build here, and no command to run. Start testdash in a Gradle " +
+			"repo, or give it a command to run, like this:"), "", style.AccentText.Render("testdash -- npm test")}
 	}
-	return "No tests found. List them again from the palette (ctrl+p)."
+	return []string{style.Muted.Render("No tests found. List them again from the palette (ctrl+p).")}
 }
 
 type outputMsg struct{ lines []string }
