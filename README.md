@@ -4,6 +4,10 @@ Pick tests, run them, and follow everything the run touches, in one terminal app
 repo with no configuration: it lists the build's tests itself, and finds the application, WireMock, databases
 and brokers the tests start through Docker.
 
+testdash is a single Go binary built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
+[Lip Gloss](https://github.com/charmbracelet/lipgloss). It paints its own dark theme, so it looks the same in
+any terminal, and shows a run's progress in the terminal's tab or taskbar where the terminal supports it.
+
 ## The screens
 
 **Picker.** The tests of a Gradle test task, by class, including `@Nested` classes and parameterised tests.
@@ -12,19 +16,19 @@ again to run them. Results from the last run show next to each test, and `ctrl+f
 
 **Run screen.** A sidebar of views down the left: the overview, the tests, the application (★) and every other
 service the run started, and the Gradle output. On the right of each: a green ● for a running container, a dim
-■ for a stopped one, ⚠ and the number of warnings and errors it logged, ▶ while Gradle runs, and the tests'
-counts. Hovering over one says the same in words. The overview shows the tests (progress, the test running,
-failures with their message), WireMock (requests, the unmatched ones grouped by endpoint, the most requested
-endpoints), Kafka (the busiest topics and the latest messages) and a large log with a tab per service, the
-application's first.
+■ for a stopped one, ⚠ and the number of warnings and errors it logged, a spinner while Gradle runs, and the
+tests' counts. Hovering over one says the same in words. The overview shows the tests (progress, the test
+running, failures with their message), WireMock (requests, the unmatched ones grouped by endpoint, the most
+requested endpoints), Kafka (the busiest topics and the latest messages) and a large log with a tab per service,
+the application's first.
 
 **Full views.** The tests with each one's duration and failure, plus the WireMock requests, Kafka messages and
 application warnings from while it ran; `l`, `w`, `k` and `d` open the application's log, WireMock's requests,
-Kafka's messages or the databases' queries from just that time, and Enter runs the test (or class) again. A log with filter, follow and
-errors-only. WireMock with every request and whether a stub matched, the unmatched requests with their closest
-stub, the stubs, and its log. Kafka with every message on every topic (Enter on a topic shows only its), the
-topics, each consumer group's lag, and its log. MariaDB, MySQL and MongoDB with every query they were asked (a
-connection pool's `SET`s and `SHOW`s hidden until `n`), and their log. Every view but
+Kafka's messages or the databases' queries from just that time, and Enter runs the test (or class) again. A log
+with filter, follow and errors-only. WireMock with every request and whether a stub matched, the unmatched
+requests with their closest stub, the stubs, and its log. Kafka with every message on every topic (Enter on a
+topic shows only its), the topics, each consumer group's lag, and its log. MariaDB, MySQL and MongoDB with every
+query they were asked (a connection pool's `SET`s and `SHOW`s hidden until `n`), and their log. Every view but
 the overview has a status bar of two lines: the test running (its method, its display name when it has one, and
 the classes it is nested in, `Outer › Inner`), then how many passed, failed, were skipped and are left.
 
@@ -34,35 +38,37 @@ message (`[reference=…]`) stay, dimmed. `v` shows lines as they were logged an
 received each one; both apply to every log. testdash reads Spring Boot's console format (2.x, 3.x, and 3.2+
 with the application name and correlation id), Logback and Log4j 2's usual patterns, JSON logs (Spring Boot's
 structured Logstash, ECS and GELF output, and MongoDB's), Kafka, MariaDB/MySQL, Postgres and Redis, and any
-line that starts with a timestamp. Lines in other formats are shown as they are.
+line that starts with a timestamp. Lines in other formats are shown as they are. A log follows new lines until
+you scroll up; End or `f` follows again.
 
 When the run cannot start its containers because a port is taken, as when another run of the same Compose
 file is up, the overview and status bar say which container (or process) holds the port.
 
 Esc goes back: from a full view to the overview, from the overview to the picker. It first clears a filter or a
-test's time. A run carries on while you look around.
+test's time. A run carries on while you look around. The mouse works too: click a view, a panel, a tab, a row
+or a footer key, and scroll with the wheel.
 
 | Where | Keys |
 |---|---|
 | Picker | type to filter (case, spaces and punctuation ignored; Esc clears) · ↑/↓ move · ←/→ collapse/expand · space select (under a filter, only matching tests) · `ctrl+a` all/none · `ctrl+f` last run's failures · `ctrl+t` task (choosing one, or Esc, goes back to the tests) · Enter → Run button → run · while a run goes on, Esc watches it and `ctrl+x` stops it |
 | Run screen | ↑/↓ in the sidebar or `1`–`9` switch views · Tab moves between sidebar and panels · Enter opens a panel · `[` `]` switch the overview's log · `r` run again · `F` run the failures · `x` stop (twice kills) · `p` or Esc (on the overview) picker · `:` jump · `q` quit |
 | Tests view | `/` find · `s` show all, failed or not passed · Enter run this test or class again · `l` its log · `w` its WireMock requests · `k` its Kafka messages · `d` its database queries |
-| Log views | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · Esc back |
+| Log views | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · ←/→ scroll sideways · Home/End · Esc back |
 | WireMock | ←/→ Requests, Unmatched, Stubs, Log · ↑/↓ a row, details on the right · `u` unmatched only |
 | Kafka | ←/→ Messages, Topics, Groups, Log · ↑/↓ a row, details on the right · Enter on a topic shows its messages |
 | Databases | ←/→ Queries, Log · ↑/↓ a query, all of it on the right · `n` session chatter |
-| Anywhere | `ctrl+p` jump to anything · `ctrl+q` quit |
+| Anywhere | `ctrl+p` command palette · `ctrl+q` or `ctrl+c` quit |
 
 ## Use
 
-Needs [uv](https://docs.astral.sh/uv/), which installs testdash's one dependency,
-[Textual](https://textual.textualize.io), on first use, and Docker for the service views. Gradle builds also need
-a JDK (`JAVA_HOME` or `javac` on PATH) to compile the JUnit listener once. Put `testdash` on your PATH with a
-link to the script, which finds its other files through the link:
+Build it with Go 1.26 or later and put the binary on your PATH:
 
 ```sh
-ln -s "$PWD/testdash" ~/.local/bin/testdash
+go build -o ~/.local/bin/testdash .
 ```
+
+It needs Docker for the service views, and Gradle builds need a JDK (`JAVA_HOME` or `javac` on PATH) to compile
+the JUnit listener once.
 
 ```sh
 testdash                             # in a Gradle repo: pick from its test tasks
@@ -91,14 +97,14 @@ views for a `file` or a `command`'s output.
 ## How it works
 
 **The test list** comes from JUnit Platform's discovery API, so it is exactly what a run would execute. A
-Gradle init script (`junit/testdash.init.gradle`) adds a `testdashDiscover` task that compiles each Test task's
-tests and discovers them (`junit/Discover.java`) without running them or the Test task's other dependencies. The
-result is cached, so the picker opens at once and refreshes in the background. A selection becomes `--tests`
-filters; a whole class also selects its `@Nested` classes.
+Gradle init script (`internal/gradle/junit/testdash.init.gradle`) adds a `testdashDiscover` task that compiles
+each Test task's tests and discovers them (`internal/gradle/junit/Discover.java`) without running them or the
+Test task's other dependencies. The result is cached, so the picker opens at once and refreshes in the
+background. A selection becomes `--tests` filters; a whole class also selects its `@Nested` classes.
 
-**Progress** comes from a JUnit listener (`junit/TestdashListener.java`) the same init script puts on every Test
-task, without changing the build. Both are compiled once against JUnit jars from your Gradle cache, using only
-JUnit Platform 1.0 API, and kept in `~/.cache/testdash`.
+**Progress** comes from a JUnit listener (`internal/gradle/junit/TestdashListener.java`) the same init script
+puts on every Test task, without changing the build. Both are embedded in the binary, compiled once against JUnit
+jars from your Gradle cache, using only JUnit Platform 1.0 API, and kept in `~/.cache/testdash`.
 
 **Services** are the containers the run started. When the tests use Testcontainers, the listener reports the
 labels Testcontainers will clean up by, its session id and each Compose project's name (registered before the
@@ -120,9 +126,22 @@ init scripts on, so queries made before that (migrations at startup, say) are mi
 which its images have from 6.0.
 
 **Kafka** is read with its own tools in its container. One `kafka-console-consumer` follows every topic with a
-formatter that prints each message as JSON with its topic (`kafka/TestdashFormatter.java`, compiled once against
-a kafka-clients jar and copied into the container). Topics and consumer group lag are polled with `kafka-topics`
-and `kafka-consumer-groups` only while their tabs are open, since each poll starts a JVM beside the broker.
+formatter that prints each message as JSON with its topic (`internal/kafka/formatter/TestdashFormatter.java`,
+compiled once against a kafka-clients jar and copied into the container). Topics and consumer group lag are
+polled with `kafka-topics` and `kafka-consumer-groups` only while their tabs are open, since each poll starts a
+JVM beside the broker.
 
 Other test runners can feed the progress views too: a reporter writes JSON lines to `progress-<id>.jsonl` in the
-directory JVM tests get as the `testdash.dir` system property. `progress.py` documents the events.
+directory JVM tests get as the `testdash.dir` system property. `internal/progress` documents the events.
+
+## Developing
+
+```sh
+go test ./...    # the parsers are checked against what the Python version made of the same lines
+go vet ./...
+```
+
+The packages under `internal/` follow the work: `catalog` (the test tree and its cache), `gradle` (the init script
+and listener), `progress`, `runner`, `services` (the Docker watcher), `logformat`, `wiremock`, `kafka`,
+`databases`, and `ui`, the Bubble Tea model. Everything the screens show lives on the model and changes only in
+`Update`; the work that waits runs in goroutines that send their results in as messages.

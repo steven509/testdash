@@ -1,0 +1,113 @@
+package catalog
+
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+)
+
+func entries() []*Entry {
+	raw := []string{
+		`{"id": "c1", "parent": null, "kind": "class", "className": "com.a.FooTest", "name": "FooTest"}`,
+		`{"id": "t1", "parent": "c1", "kind": "test", "className": "com.a.FooTest", "methodName": "one", "name": "one()"}`,
+		`{"id": "t2", "parent": "c1", "kind": "template", "className": "com.a.FooTest", "methodName": "each", "name": "each(String)"}`,
+		`{"id": "n1", "parent": "c1", "kind": "class", "className": "com.a.FooTest$Inner", "name": "Inner"}`,
+		`{"id": "t3", "parent": "n1", "kind": "test", "className": "com.a.FooTest$Inner", "methodName": "three", "name": "three()"}`,
+		`{"id": "c2", "parent": null, "kind": "class", "className": "com.a.BarTest", "name": "BarTest"}`,
+		`{"id": "t4", "parent": "c2", "kind": "test", "className": "com.a.BarTest", "methodName": "four", "name": "four()"}`,
+	}
+	var out []*Entry
+	for _, r := range raw {
+		var e RawEntry
+		if err := json.Unmarshal([]byte(r), &e); err != nil {
+			panic(err)
+		}
+		out = append(out, FromRaw(e))
+	}
+	return out
+}
+
+func set(ids ...string) map[string]bool {
+	s := map[string]bool{}
+	for _, id := range ids {
+		s[id] = true
+	}
+	return s
+}
+
+func TestGradleFilters(t *testing.T) {
+	task := &TestTask{Path: ":test", Entries: entries()}
+	for name, c := range map[string]struct {
+		selected map[string]bool
+		want     []string
+	}{
+		"one test":            {set("t1"), []string{"--tests", "com.a.FooTest.one"}},
+		"a whole class":       {set("t1", "t2", "t3"), []string{"--tests", "com.a.FooTest", "--tests", "com.a.FooTest$*"}},
+		"a nested class":      {set("t3"), []string{"--tests", "com.a.FooTest$Inner", "--tests", "com.a.FooTest$Inner$*"}},
+		"a template, a class": {set("t2", "t4"), []string{"--tests", "com.a.FooTest.each", "--tests", "com.a.BarTest", "--tests", "com.a.BarTest$*"}},
+	} {
+		if got := GradleFilters(task, c.selected); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+}
+
+func TestDisplayNames(t *testing.T) {
+	var names []string
+	for _, e := range entries() {
+		names = append(names, e.Name)
+	}
+	want := []string{"FooTest", "one", "each", "Inner", "three", "BarTest", "four"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("names %q, want %q", names, want)
+	}
+	if short := entries()[3].ShortClass(); short != "FooTest.Inner" {
+		t.Errorf("short class %q", short)
+	}
+}
+
+func TestDiscoveryIsCachedInTaskOrder(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	root, out := t.TempDir(), t.TempDir()
+	write := func(name, task string) {
+		var raw []json.RawMessage
+		for _, e := range entries() {
+			data, _ := json.Marshal(e.raw())
+			raw = append(raw, data)
+		}
+		data, _ := json.Marshal(map[string]any{"task": task, "entries": raw})
+		if err := os.WriteFile(filepath.Join(out, name), data, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("_app_test.json", ":app:test")
+	write("_app_blackBoxTest.json", ":app:blackBoxTest")
+	c := Load(root)
+	c.UpdateFromDiscovery(out)
+	loaded := Load(root)
+	if !reflect.DeepEqual(loaded.Paths, []string{":app:blackBoxTest", ":app:test"}) {
+		t.Fatalf("paths %q", loaded.Paths)
+	}
+	if got := len(loaded.Tasks[":app:test"].Leaves()); got != 4 {
+		t.Errorf("%d leaves, want 4", got)
+	}
+	if got := loaded.Tasks[":app:test"].Entries[2].Name; got != "each" {
+		t.Errorf("cached name %q", got)
+	}
+}
+
+func TestBuildRoot(t *testing.T) {
+	root := t.TempDir()
+	nested := filepath.Join(root, "a", "b")
+	if err := os.MkdirAll(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "gradlew"), nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := BuildRoot(nested); got != root {
+		t.Errorf("BuildRoot = %q, want %q", got, root)
+	}
+}

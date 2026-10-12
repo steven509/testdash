@@ -1,0 +1,220 @@
+[
+ {
+  "line": "2026-10-12 15:45:51.006  INFO 1 --- [app] [           main] [trace-span] c.l.p.Foo   : [ref=12] started thing",
+  "record": [
+   "INFO",
+   "started thing",
+   "ref=12"
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "INFO  [ref=12] started thing"
+ },
+ {
+  "line": "2026-10-12T15:45:51.006Z  WARN 7 --- [           main] o.s.b.Foo                : something odd",
+  "record": [
+   "WARN",
+   "something odd",
+   ""
+  ],
+  "problem": true,
+  "logged": true,
+  "simple": "WARN  something odd"
+ },
+ {
+  "line": "15:45:51.006 [main] INFO  c.l.p.Foo -- message here",
+  "record": [
+   "INFO",
+   "message here",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "INFO  message here"
+ },
+ {
+  "line": "2026-10-12 15:45:51,006 ERROR [main] c.l.p.Foo - it broke",
+  "record": [
+   "ERROR",
+   "it broke",
+   ""
+  ],
+  "problem": true,
+  "logged": true,
+  "simple": "ERROR it broke"
+ },
+ {
+  "line": "[2026-10-12 15:45:58,569] INFO [QuorumController id=1] Became the active controller (org.apache.kafka.Foo)",
+  "record": [
+   "INFO",
+   "[QuorumController id=1] Became the active controller",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "INFO  [QuorumController id=1] Became the active controller"
+ },
+ {
+  "line": "2026-10-12 15:45:25 0 [Note] InnoDB: Buffer pool(s) load completed",
+  "record": [
+   "INFO",
+   "InnoDB: Buffer pool(s) load completed",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "INFO  InnoDB: Buffer pool(s) load completed"
+ },
+ {
+  "line": "2026-10-12T15:45:25.123456Z 0 [System] [MY-010116] [Server] /usr/sbin/mysqld starting",
+  "record": [
+   "INFO",
+   "[Server] /usr/sbin/mysqld starting",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "INFO  [Server] /usr/sbin/mysqld starting"
+ },
+ {
+  "line": "2026-10-12 15:45:25.123 UTC [1] LOG:  database system is ready",
+  "record": [
+   "INFO",
+   "database system is ready",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "INFO  database system is ready"
+ },
+ {
+  "line": "2026-10-12 15:45:25.123 UTC [1] DETAIL:  some detail",
+  "record": [
+   null,
+   "DETAIL: some detail",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "DETAIL: some detail"
+ },
+ {
+  "line": "1:M 12 Oct 2026 15:45:25.123 * Ready to accept connections",
+  "record": [
+   "INFO",
+   "Ready to accept connections",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "INFO  Ready to accept connections"
+ },
+ {
+  "line": "2026-10-12 15:45:51.006 [WARN] wiremock thing",
+  "record": [
+   "WARN",
+   "wiremock thing",
+   ""
+  ],
+  "problem": true,
+  "logged": true,
+  "simple": "WARN  wiremock thing"
+ },
+ {
+  "line": "2026-10-12 15:45:51.006 Verbose WireMock line",
+  "record": [
+   null,
+   "Verbose WireMock line",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "Verbose WireMock line"
+ },
+ {
+  "line": "{\"@timestamp\":\"2026-10-12T15:45:51.006Z\",\"level\":\"ERROR\",\"message\":\"boom\",\"stack_trace\":\"java.lang.IllegalStateException: x\\n\\tat a.B.c(B.java:1)\"}",
+  "record": [
+   "ERROR",
+   "boom\njava.lang.IllegalStateException: x\n\tat a.B.c(B.java:1)",
+   ""
+  ],
+  "problem": true,
+  "logged": true,
+  "simple": "ERROR boom\n      java.lang.IllegalStateException: x\n      at a.B.c(B.java:1)"
+ },
+ {
+  "line": "{\"log.level\":\"warn\",\"message\":\"ecs warning\"}",
+  "record": [
+   "WARN",
+   "ecs warning",
+   ""
+  ],
+  "problem": true,
+  "logged": true,
+  "simple": "WARN  ecs warning"
+ },
+ {
+  "line": "{\"version\":\"1.1\",\"short_message\":\"gelf msg\",\"level\":3}",
+  "record": [
+   "ERROR",
+   "gelf msg",
+   ""
+  ],
+  "problem": true,
+  "logged": true,
+  "simple": "ERROR gelf msg"
+ },
+ {
+  "line": "{\"t\":{\"$date\":\"2026-10-12T15:45:51.006Z\"},\"s\":\"I\",\"c\":\"NETWORK\",\"id\":1,\"msg\":\"Connection accepted\",\"attr\":{\"remote\":\"1.2.3.4:5\",\"connectionCount\":2}}",
+  "record": [
+   "INFO",
+   "Connection accepted  {\"remote\": \"1.2.3.4:5\", \"connectionCount\": 2}",
+   ""
+  ],
+  "problem": false,
+  "logged": false,
+  "simple": "INFO  Connection accepted  {\"remote\": \"1.2.3.4:5\", \"connectionCount\": 2}"
+ },
+ {
+  "line": "{\"nothing\":\"here\"}",
+  "record": null,
+  "problem": false,
+  "logged": false,
+  "simple": "{\"nothing\":\"here\"}"
+ },
+ {
+  "line": "\tat com.example.Foo.bar(Foo.java:10)",
+  "record": null,
+  "problem": true,
+  "logged": false,
+  "simple": "      at com.example.Foo.bar(Foo.java:10)"
+ },
+ {
+  "line": "Caused by: java.lang.IllegalArgumentException: bad",
+  "record": null,
+  "problem": true,
+  "logged": false,
+  "simple": "      Caused by: java.lang.IllegalArgumentException: bad"
+ },
+ {
+  "line": "some random ERROR text",
+  "record": null,
+  "problem": true,
+  "logged": true,
+  "simple": "some random ERROR text"
+ },
+ {
+  "line": "  indented WARN text",
+  "record": null,
+  "problem": true,
+  "logged": false,
+  "simple": "  indented WARN text"
+ },
+ {
+  "line": "\u001b[32mcoloured\u001b[0m INFO line",
+  "record": null,
+  "problem": false,
+  "logged": false,
+  "simple": "coloured INFO line"
+ }
+]
