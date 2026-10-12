@@ -33,3 +33,32 @@ func TestStubLabel(t *testing.T) {
 		}
 	}
 }
+
+func TestParseJournalAndNearMisses(t *testing.T) {
+	events, ok := ParseJournal([]byte(`{
+  "requests" : [ {
+    "id" : "e2",
+    "request" : { "url" : "/payments/p1/refunds", "method" : "POST", "loggedDate" : 1760283951100 },
+    "responseDefinition" : { "status" : 404 },
+    "wasMatched" : false
+  }, {
+    "id" : "e1",
+    "request" : { "url" : "/payments", "method" : "POST", "loggedDate" : 1760283951006 },
+    "response" : { "status" : 201 },
+    "wasMatched" : true
+  } ],
+  "meta" : { "total" : 2 }
+}`))
+	if !ok || len(events) != 2 || events[0].ID != "e2" || events[1].Status != 201 {
+		t.Fatalf("a journal reads newest first: %+v", events)
+	}
+	misses, ok := ParseNearMisses([]byte(`{"nearMisses":[{"request":{"url":"/payments/p1/refunds","method":"POST",` +
+		`"loggedDate":1760283951100},"stubMapping":{"name":"Refund a payment"},"matchResult":{"distance":0.12}}]}`))
+	if !ok || len(misses) != 1 || misses[0].Distance != 0.12 || misses[0].LoggedDate != "1760283951100" ||
+		StubLabel(misses[0].StubMapping) != "Refund a payment" {
+		t.Fatalf("%+v", misses)
+	}
+	if _, ok := ParseJournal([]byte("<html>not WireMock</html>")); ok {
+		t.Error("a reply that is not a journal is refused")
+	}
+}

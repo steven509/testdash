@@ -1,20 +1,30 @@
 package testdash;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.io.Writer;
 import java.lang.reflect.Field;
+import java.net.HttpURLConnection;
+import java.net.Proxy;
+import java.net.URI;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.DirectoryStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.TestSource;
@@ -38,6 +48,9 @@ import org.junit.platform.launcher.TestPlan;
  * When Testcontainers is on the classpath, containers events name the labels it will clean up by: its session
  * id, and each Compose project's name, registered before the project starts. They tell this run's containers
  * from another run's.
+ *
+ * As each test starts, and as the run ends, the WireMocks testdash names get their journals copied for it, as
+ * tests that reset WireMock take requests out of the journal before testdash would see them (see WireMockJournals).
  */
 public class TestdashListener implements TestExecutionListener {
 
@@ -46,6 +59,7 @@ public class TestdashListener implements TestExecutionListener {
     private Writer out;
     private Thread containerWatcher;
     private final Set<String> containerLabels = new LinkedHashSet<>();
+    private WireMockJournals journals;
 
     @Override
     public synchronized void testPlanExecutionStarted(TestPlan testPlan) {
@@ -63,6 +77,7 @@ public class TestdashListener implements TestExecutionListener {
         }
         write("plan", "\"entries\":[" + String.join(",", planEntries(testPlan)) + "]");
         watchContainers();
+        journals = new WireMockJournals(Paths.get(dir));
     }
 
     private void watchContainers() {
@@ -150,6 +165,9 @@ public class TestdashListener implements TestExecutionListener {
 
     @Override
     public synchronized void executionStarted(TestIdentifier testIdentifier) {
+        if (journals != null && testIdentifier.isTest()) {
+            journals.copy();
+        }
         if (kind(testIdentifier) != null) {
             write("started", "\"id\":" + json(testIdentifier.getUniqueId()));
         }
@@ -183,6 +201,10 @@ public class TestdashListener implements TestExecutionListener {
         if (containerWatcher != null) {
             containerWatcher.interrupt();
             containerWatcher = null;
+        }
+        if (journals != null) {
+            journals.copy();
+            journals = null;
         }
         write("done", null);
         if (out != null) {
@@ -258,6 +280,114 @@ public class TestdashListener implements TestExecutionListener {
             out.flush();
         } catch (IOException e) {
             out = null;
+        }
+    }
+
+    /**
+     * Copies WireMock journals for testdash. testdash puts a file in [testdash.dir]/wiremock for each WireMock it
+     * can reach, named for the service and holding its base URL. A copy is the requests WireMock logged since a
+     * little before the last copy, and its near misses when one went unmatched, written whole to
+     * [testdash.dir]/wiremock-journal/[pid]-[n]-[service].requests.json (or .near-misses.json). A WireMock that
+     * does not answer three times running is left alone until the files change, so it cannot slow the tests.
+     */
+    static final class WireMockJournals {
+        private static final Pattern UNMATCHED = Pattern.compile("\"wasMatched\"\\s*:\\s*false");
+        private static final long CLOCK_SLACK_MILLIS = 2000;
+
+        private final Path targets;
+        private final Path copies;
+        private final String prefix = ProcessHandle.current().pid() + "-";
+        private final Map<String, String> baseUrls = new LinkedHashMap<>();
+        private final Map<String, Long> copiedAt = new HashMap<>();
+        private final Map<String, Integer> failures = new HashMap<>();
+        private long listed = Long.MIN_VALUE;
+        private int copied;
+
+        WireMockJournals(Path dir) {
+            targets = dir.resolve("wiremock");
+            copies = dir.resolve("wiremock-journal");
+        }
+
+        void copy() {
+            try {
+                if (!Files.isDirectory(targets)) {
+                    return;
+                }
+                long modified = Files.getLastModifiedTime(targets).toMillis();
+                if (modified != listed) {
+                    listed = modified;
+                    list();
+                }
+                for (Map.Entry<String, String> target : baseUrls.entrySet()) {
+                    String service = target.getKey();
+                    if (failures.getOrDefault(service, 0) >= 3) {
+                        continue;
+                    }
+                    long now = System.currentTimeMillis();
+                    Long since = copiedAt.get(service);
+                    String query = since == null
+                        ? "?limit=1000"
+                        : "?since=" + Instant.ofEpochMilli(since - CLOCK_SLACK_MILLIS);
+                    String journal = get(target.getValue() + "/__admin/requests" + query);
+                    if (journal == null) {
+                        failures.merge(service, 1, Integer::sum);
+                        continue;
+                    }
+                    failures.remove(service);
+                    copiedAt.put(service, now);
+                    save(service, "requests", journal);
+                    if (UNMATCHED.matcher(journal).find()) {
+                        String nearMisses = get(target.getValue() + "/__admin/requests/unmatched/near-misses");
+                        if (nearMisses != null) {
+                            save(service, "near-misses", nearMisses);
+                        }
+                    }
+                }
+            } catch (IOException | RuntimeException ignored) {
+                // a copy is a nicety; the run goes on without it
+            }
+        }
+
+        private void list() throws IOException {
+            baseUrls.clear();
+            failures.clear();
+            try (DirectoryStream<Path> files = Files.newDirectoryStream(targets)) {
+                for (Path file : files) {
+                    String url = new String(Files.readAllBytes(file), StandardCharsets.UTF_8).trim();
+                    if (url.startsWith("http")) {
+                        baseUrls.put(file.getFileName().toString(), url);
+                    }
+                }
+            }
+        }
+
+        private void save(String service, String kind, String body) throws IOException {
+            Files.createDirectories(copies);
+            String name = prefix + (copied++) + "-" + service + "." + kind + ".json";
+            Path partial = copies.resolve(name + ".partial");
+            Files.write(partial, body.getBytes(StandardCharsets.UTF_8));
+            Files.move(partial, copies.resolve(name), StandardCopyOption.ATOMIC_MOVE);
+        }
+
+        private static String get(String url) {
+            HttpURLConnection connection = null;
+            try {
+                connection = (HttpURLConnection) URI.create(url).toURL().openConnection(Proxy.NO_PROXY);
+                connection.setConnectTimeout(250);
+                connection.setReadTimeout(2000);
+                if (connection.getResponseCode() != 200) {
+                    return null;
+                }
+                try (InputStream body = connection.getInputStream()) {
+                    return new String(body.readAllBytes(), StandardCharsets.UTF_8);
+                }
+            } catch (IOException | RuntimeException e) {
+                return null;
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
+            }
         }
     }
 

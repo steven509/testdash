@@ -8,11 +8,14 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 	"sync/atomic"
 	"syscall"
 	"time"
+	"unicode"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -145,8 +148,9 @@ type wiremockView struct {
 	entry         *svcEntry
 	client        *wiremock.Client
 	info          func() string
-	events        []wiremock.ServeEvent
-	nearMisses    []wiremock.NearMiss
+	events        []wiremock.ServeEvent          // every request this run, oldest first, kept when tests reset WireMock
+	byID          map[string]wiremock.ServeEvent // the same, by id
+	closest       map[string]wiremock.NearMiss   // nearMissKey -> the closest stub WireMock reported for it
 	stubs         []jsonx.Object
 	unmatchedOnly bool
 	window        *window
@@ -154,10 +158,17 @@ type wiremockView struct {
 	misses        *table
 	stubTable     *table
 	details       [3]*textbox
-	raw           map[string]string // row key -> its details
+	stubDetails   map[string]string // row key -> the stub as JSON
 	log           *logView
 	reset         chan struct{}
+	unmatched     chan struct{} // a request no stub matched arrived, so ask for near misses before a reset loses them
+	runDir        string        // where the JUnit listener finds this WireMock and copies its journal
 }
+
+const (
+	journalEvery = 250 * time.Millisecond
+	maxRequests  = 20_000
+)
 
 type wiremockPoll struct {
 	events     []wiremock.ServeEvent
@@ -169,7 +180,10 @@ type wiremockPoll struct {
 }
 
 func newWiremockView(m *Model, entry *svcEntry, info func() string) *wiremockView {
-	v := &wiremockView{entry: entry, client: wiremock.New(entry.svc), info: info, raw: map[string]string{},
+	v := &wiremockView{entry: entry, client: wiremock.New(entry.svc), info: info, stubDetails: map[string]string{},
+		byID: map[string]wiremock.ServeEvent{}, closest: map[string]wiremock.NearMiss{},
+		unmatched: make(chan struct{}, 1),
+		runDir:    m.opts.RunDir,
 		requests:  newTable("Time", "Status", "Stub", "Method", "URL"),
 		misses:    newTable("Time", "Method", "URL", "Closest stub"),
 		stubTable: newTable("Stub", "Method", "URL", "Status", "Priority"),
@@ -182,35 +196,21 @@ func newWiremockView(m *Model, entry *svcEntry, info func() string) *wiremockVie
 	return v
 }
 
-// poll asks WireMock every 1.5s while it runs: requests each time, near misses and stubs every third time, or
-// straight away when a new request went unmatched, as a short run's containers soon stop.
+// poll follows the request journal, and asks WireMock for near misses as soon as a request goes unmatched (and
+// every 4.5s, as working them out costs WireMock), and for its stubs every 4.5s.
 func (v *wiremockView) poll(ctx context.Context, send func(tea.Msg)) {
-	var known []string
+	go v.followJournal(ctx, send)
+	go v.followCopies(ctx, send)
 	var lastMisses, lastStubs string
+	newUnmatched := false
 	for cycle := 0; ctx.Err() == nil; cycle++ {
 		select {
 		case <-v.reset:
-			known, lastMisses, lastStubs = nil, "", ""
+			lastMisses, lastStubs = "", ""
 		default:
 		}
 		if v.entry.svc.State() == "running" {
 			var result wiremockPoll
-			newUnmatched := false
-			if events, ok := v.client.Requests(ctx, 300); ok && len(events) > 0 {
-				ids := make([]string, len(events))
-				seen := map[string]bool{}
-				for _, id := range known {
-					seen[id] = true
-				}
-				for i, e := range events {
-					ids[i] = e.ID
-					newUnmatched = newUnmatched || (!e.Matched && !seen[e.ID])
-				}
-				if strings.Join(ids, ",") != strings.Join(known, ",") {
-					known = ids
-					result.events, result.hasEvents = events, true
-				}
-			}
 			if newUnmatched || cycle%3 == 0 {
 				if misses, ok := v.client.NearMisses(ctx); ok {
 					if encoded, _ := json.Marshal(misses); string(encoded) != lastMisses {
@@ -231,32 +231,204 @@ func (v *wiremockView) poll(ctx context.Context, send func(tea.Msg)) {
 					}
 				}
 			}
-			if result.hasEvents || result.hasMisses || result.hasStubs {
+			if result.hasMisses || result.hasStubs {
 				send(wiremockMsg{view: v, poll: result})
 			}
 		}
-		sleepContext(ctx, 1500*time.Millisecond)
+		newUnmatched = false
+		select {
+		case <-ctx.Done():
+		case <-v.unmatched:
+			newUnmatched = true
+		case <-time.After(1500 * time.Millisecond):
+		}
 	}
 }
 
-func (v *wiremockView) polled(m *Model, p wiremockPoll) {
-	if p.hasEvents { // WireMock lists the newest first; the views list everything oldest first
-		v.events = make([]wiremock.ServeEvent, len(p.events))
-		for i, e := range p.events {
-			v.events[len(p.events)-1-i] = e
+// followJournal sends the requests WireMock's journal has that it has not sent before, oldest first. What it
+// sent is remembered for the view's life, so a container kept from the last run does not bring its requests back.
+func (v *wiremockView) followJournal(ctx context.Context, send func(tea.Msg)) {
+	sent := map[string]bool{}
+	for ctx.Err() == nil {
+		if v.entry.svc.State() == "running" {
+			v.client.FollowJournal(ctx, journalEvery, 200, func(events []wiremock.ServeEvent) {
+				var fresh []wiremock.ServeEvent
+				unmatched := false
+				for i := len(events) - 1; i >= 0; i-- { // the journal lists the newest first
+					if e := events[i]; !sent[e.ID] {
+						sent[e.ID] = true
+						fresh = append(fresh, e)
+						unmatched = unmatched || !e.Matched
+					}
+				}
+				if len(fresh) > 0 {
+					send(wiremockMsg{view: v, poll: wiremockPoll{events: fresh, hasEvents: true}})
+				}
+				if unmatched {
+					select {
+					case v.unmatched <- struct{}{}:
+					default:
+					}
+				}
+			})
+		}
+		sleepContext(ctx, time.Second)
+	}
+}
+
+var journalCopy = regexp.MustCompile(`^\d+-\d+-(.+)\.(requests|near-misses)\.json$`)
+
+// followCopies tells the JUnit listener where this WireMock is, and reads the copies of its journal the listener
+// makes as each test starts: a test that resets WireMock can take a request out of the journal a moment after it
+// arrived, before followJournal sees it, but not before the next test starts.
+func (v *wiremockView) followCopies(ctx context.Context, send func(tea.Msg)) {
+	dir := filepath.Join(v.runDir, "wiremock-journal")
+	for tick := 0; ctx.Err() == nil; tick++ {
+		if tick%4 == 0 {
+			v.publishTarget()
+		}
+		files, _ := os.ReadDir(dir)
+		var poll wiremockPoll
+		for _, file := range files {
+			match := journalCopy.FindStringSubmatch(file.Name())
+			if match == nil || match[1] != targetName(v.entry.svc.Key) {
+				continue
+			}
+			path := filepath.Join(dir, file.Name())
+			body, err := os.ReadFile(path)
+			_ = os.Remove(path)
+			if err != nil {
+				continue
+			}
+			if match[2] == "requests" {
+				if events, ok := wiremock.ParseJournal(body); ok {
+					poll.events, poll.hasEvents = append(poll.events, events...), true
+				}
+			} else if misses, ok := wiremock.ParseNearMisses(body); ok {
+				poll.nearMisses, poll.hasMisses = append(poll.nearMisses, misses...), true
+			}
+		}
+		if poll.hasEvents || poll.hasMisses {
+			send(wiremockMsg{view: v, poll: poll})
+		}
+		sleepContext(ctx, journalEvery)
+	}
+}
+
+// publishTarget writes where the host reaches this WireMock to [run dir]/wiremock/[service], for the listener,
+// while it runs with a published port, and removes it otherwise.
+func (v *wiremockView) publishTarget() {
+	path := filepath.Join(v.runDir, "wiremock", targetName(v.entry.svc.Key))
+	url := ""
+	if v.entry.svc.State() == "running" {
+		url = v.client.BaseURL()
+	}
+	current, err := os.ReadFile(path)
+	switch {
+	case url == "" && err == nil:
+		_ = os.Remove(path)
+	case url != "" && string(current) != url:
+		if os.MkdirAll(filepath.Dir(path), 0o755) == nil && os.WriteFile(path+".partial", []byte(url), 0o644) == nil {
+			_ = os.Rename(path+".partial", path)
 		}
 	}
+}
+
+// targetName is a service's key made safe for a file name.
+func targetName(key string) string {
+	return strings.Map(func(r rune) rune {
+		if r < 128 && (unicode.IsLetter(r) || unicode.IsDigit(r) || r == '.' || r == '_') {
+			return r
+		}
+		return '_'
+	}, key)
+}
+
+// polled takes in new requests, near misses and stubs. Requests are added, never replaced, as tests that reset
+// WireMock empty its journal; near misses are kept for the same reason.
+func (v *wiremockView) polled(m *Model, p wiremockPoll) {
+	if p.hasEvents {
+		v.add(p.events)
+	}
 	if p.hasMisses {
-		v.nearMisses = p.nearMisses
+		for _, miss := range p.nearMisses {
+			key := nearMissKey(miss.Method, miss.URL, miss.LoggedDate)
+			if known, ok := v.closest[key]; !ok || miss.Distance < known.Distance {
+				v.closest[key] = miss
+			}
+		}
+		v.fillNearMisses()
 	}
 	if p.hasStubs {
 		v.stubs = p.stubs
 		v.fillStubs()
 	}
-	if p.hasEvents || p.hasMisses {
-		v.fillRequests()
-		v.fillNearMisses()
+}
+
+func (v *wiremockView) add(events []wiremock.ServeEvent) {
+	var fresh []wiremock.ServeEvent
+	for _, e := range events {
+		if _, seen := v.byID[e.ID]; !seen {
+			v.byID[e.ID] = e
+			fresh = append(fresh, e)
+		}
 	}
+	if len(fresh) == 0 {
+		return
+	}
+	earlier := func(a, b wiremock.ServeEvent) bool { return a.At.Before(b.At) }
+	inOrder := sort.SliceIsSorted(fresh, func(i, j int) bool { return earlier(fresh[i], fresh[j]) }) &&
+		(len(v.events) == 0 || !earlier(fresh[0], v.events[len(v.events)-1]))
+	v.events = append(v.events, fresh...)
+	if !inOrder {
+		sort.SliceStable(v.events, func(i, j int) bool { return earlier(v.events[i], v.events[j]) })
+	}
+	trimmed := false
+	if len(v.events) > maxRequests+maxRequests/10 { // trimmed in steps, as the tables are built again after
+		for _, e := range v.events[:len(v.events)-maxRequests] {
+			delete(v.byID, e.ID)
+		}
+		v.events = append([]wiremock.ServeEvent(nil), v.events[len(v.events)-maxRequests:]...)
+		trimmed = true
+	}
+	if inOrder && !trimmed {
+		following := len(v.requests.rows) == 0 || v.requests.cursor >= len(v.requests.rows)-1
+		for _, e := range fresh {
+			v.addRequestRow(e)
+		}
+		if following {
+			v.requests.moveCursor(len(v.requests.rows) - 1)
+		}
+	} else {
+		v.fillRequests()
+	}
+	for _, e := range fresh {
+		if !e.Matched {
+			v.fillNearMisses()
+			break
+		}
+	}
+}
+
+func nearMissKey(method, url, loggedDate string) string {
+	return method + "\x00" + url + "\x00" + loggedDate
+}
+
+// requestDetails describes the request a row stands for, with the closest stub when no stub matched it.
+func (v *wiremockView) requestDetails(key string) string {
+	if details, ok := v.stubDetails[key]; ok {
+		return details
+	}
+	_, id, _ := strings.Cut(key, ":")
+	e, ok := v.byID[id]
+	if !ok {
+		return ""
+	}
+	var near *wiremock.NearMiss
+	if miss, ok := v.closest[nearMissKey(e.Method, e.URL, e.LoggedDate())]; ok && !e.Matched {
+		near = &miss
+	}
+	return describeRequest(e, near)
 }
 
 func (v *wiremockView) main() any {
@@ -314,7 +486,7 @@ func (v *wiremockView) render(m *Model, r rect) []string {
 		return append(out, v.log.render(m, pane)...)
 	}
 	t, detail := v.paneOf(v.activeID())
-	detail.set(t.cursorKey(), v.raw[t.cursorKey()])
+	detail.set(t.cursorKey(), v.requestDetails(t.cursorKey()))
 	return append(out, tablePane(m, pane, t, detail)...)
 }
 
@@ -350,7 +522,7 @@ func (v *wiremockView) setWindow(m *Model, w *window) {
 }
 
 func (v *wiremockView) clear() {
-	v.events, v.nearMisses, v.raw = nil, nil, map[string]string{}
+	v.events, v.byID, v.closest = nil, map[string]wiremock.ServeEvent{}, map[string]wiremock.NearMiss{}
 	v.fillRequests()
 	v.fillNearMisses()
 	for _, d := range v.details {
@@ -368,33 +540,36 @@ func (v *wiremockView) append(m *Model, lines []*logformat.Line) {
 }
 
 func (v *wiremockView) fillRequests() {
-	cursor := v.requests.cursor
-	following := len(v.requests.rows) == 0 || cursor >= len(v.requests.rows)-1
+	key := v.requests.cursorKey()
+	following := len(v.requests.rows) == 0 || v.requests.cursor >= len(v.requests.rows)-1
 	v.requests.clear()
 	for _, e := range v.events {
-		if (v.unmatchedOnly && e.Matched) || !v.window.holds(e.At) {
-			continue
-		}
-		statusStyle := style.Green
-		if e.Status == 0 || e.Status >= 400 {
-			statusStyle = style.Red
-		}
-		status := ""
-		if e.Status != 0 {
-			status = fmt.Sprint(e.Status)
-		}
-		stub := style.Green.Render("✔")
-		if !e.Matched {
-			stub = style.BoldRed.Render("✘ none")
-		}
-		key := "r:" + e.ID
-		v.requests.addRow(key, clock(e.At), statusStyle.Render(status), stub, cleanText(e.Method), cleanText(e.URL))
-		v.raw[key] = describeRequest(e, nil)
+		v.addRequestRow(e)
 	}
-	v.requests.cursor = cursor
 	if following {
 		v.requests.moveCursor(len(v.requests.rows) - 1)
+	} else {
+		v.requests.selectKey(key)
 	}
+}
+
+func (v *wiremockView) addRequestRow(e wiremock.ServeEvent) {
+	if (v.unmatchedOnly && e.Matched) || !v.window.holds(e.At) {
+		return
+	}
+	statusStyle := style.Green
+	if e.Status == 0 || e.Status >= 400 {
+		statusStyle = style.Red
+	}
+	status := ""
+	if e.Status != 0 {
+		status = fmt.Sprint(e.Status)
+	}
+	stub := style.Green.Render("✔")
+	if !e.Matched {
+		stub = style.BoldRed.Render("✘ none")
+	}
+	v.requests.addRow("r:"+e.ID, clock(e.At), statusStyle.Render(status), stub, cleanText(e.Method), cleanText(e.URL))
 }
 
 // latest moves to the newest requests, misses and stubs.
@@ -409,27 +584,15 @@ func (v *wiremockView) latest() {
 func (v *wiremockView) fillNearMisses() {
 	cursor := v.misses.cursor
 	v.misses.clear()
-	closest := map[string]wiremock.NearMiss{}
-	for _, miss := range v.nearMisses {
-		key := miss.Method + "\x00" + miss.URL + "\x00" + miss.LoggedDate
-		if known, ok := closest[key]; !ok || miss.Distance < known.Distance {
-			closest[key] = miss
-		}
-	}
 	for _, e := range v.events {
 		if e.Matched || !v.window.holds(e.At) {
 			continue
 		}
-		miss, ok := closest[e.Method+"\x00"+e.URL+"\x00"+e.LoggedDate()]
 		stub := style.Dim.Render("no stub is close")
-		var near *wiremock.NearMiss
-		if ok {
+		if miss, ok := v.closest[nearMissKey(e.Method, e.URL, e.LoggedDate())]; ok {
 			stub = cleanText(wiremock.StubLabel(miss.StubMapping))
-			near = &miss
 		}
-		key := "n:" + e.ID
-		v.misses.addRow(key, clock(e.At), cleanText(e.Method), cleanText(e.URL), stub)
-		v.raw[key] = describeRequest(e, near)
+		v.misses.addRow("n:"+e.ID, clock(e.At), cleanText(e.Method), cleanText(e.URL), stub)
 	}
 	v.misses.cursor = cursor
 }
@@ -452,7 +615,7 @@ func (v *wiremockView) fillStubs() {
 		key := "s:" + stub.String("id")
 		v.stubTable.addRow(key, cleanText(name), cleanText(method), cleanText(wiremock.StubURL(request)),
 			response.String("status"), stub.String("priority"))
-		v.raw[key] = style.Cyan.Render(cleanBlock(jsonx.Indent(stub.Marshal())))
+		v.stubDetails[key] = style.Cyan.Render(cleanBlock(jsonx.Indent(stub.Marshal())))
 	}
 	v.stubTable.cursor = cursor
 }

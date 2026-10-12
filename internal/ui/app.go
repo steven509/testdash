@@ -683,6 +683,7 @@ func (m *Model) launch(filters []string, picked map[string]bool) tea.Cmd {
 			_ = os.Remove(stale)
 		}
 	}
+	_ = os.RemoveAll(filepath.Join(m.opts.RunDir, "wiremock-journal"))
 	m.runStarted, m.runFinished, m.exitCode = time.Now(), time.Time{}, 0
 	m.portConflict, m.explained = "", map[string]bool{}
 	m.progress = progress.New(m.opts.RunDir)

@@ -13,11 +13,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"testdash/internal/catalog"
+	"testdash/internal/jsonx"
 	"testdash/internal/kafka"
 	"testdash/internal/logformat"
 	"testdash/internal/progress"
 	"testdash/internal/services"
 	"testdash/internal/settings"
+	"testdash/internal/wiremock"
 )
 
 func entry(id, parent, kind, class, method, name string) *catalog.Entry {
@@ -385,6 +387,57 @@ func TestKafkaMessagesStayInTimeOrder(t *testing.T) {
 	}
 	if view.table.cursorKey() != "orders:0:4" {
 		t.Errorf("the cursor follows the newest, not %s", view.table.cursorKey())
+	}
+}
+
+func TestWiremockKeepsRequestsWhenTestsResetIt(t *testing.T) {
+	m := testModel(t)
+	service := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3.13.1")
+	m.Update(services.Added{Service: service})
+	view := m.serviceEntry(service).view.(*wiremockView)
+	at := time.Now()
+	request := func(id string, ms int, url string, matched bool) wiremock.ServeEvent {
+		raw, _ := jsonx.ParseObject([]byte(fmt.Sprintf(`{"request":{"method":"POST","url":%q},"wasMatched":%v}`, url, matched)))
+		return wiremock.ServeEvent{ID: id, At: at.Add(time.Duration(ms) * time.Millisecond), Method: "POST", URL: url,
+			Status: map[bool]int{true: 200, false: 404}[matched], Matched: matched, Raw: raw}
+	}
+	refund := request("e2", 200, "/payments/p1/refunds", false)
+	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasEvents: true, events: []wiremock.ServeEvent{
+		request("e1", 100, "/payments", true), refund}}})
+	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasMisses: true, nearMisses: []wiremock.NearMiss{{Method: "POST",
+		URL: "/payments/p1/refunds", Distance: 0.2, StubMapping: []byte(`{"name":"Refund a payment"}`)}}}})
+	// a test resets WireMock: its journal and near misses start again
+	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasEvents: true, hasMisses: true,
+		events: []wiremock.ServeEvent{request("e3", 300, "/payments", true)}}})
+	if len(view.events) != 3 || len(view.requests.rows) != 3 || view.requests.rows[0].key != "r:e1" {
+		t.Fatalf("requests from before the reset stay: %d events, %d rows", len(view.events), len(view.requests.rows))
+	}
+	if len(view.misses.rows) != 1 || !strings.Contains(view.requestDetails("n:e2"), "Refund a payment") {
+		t.Errorf("the unmatched request keeps its closest stub:\n%s", view.requestDetails("n:e2"))
+	}
+	if !strings.Contains(view.requestDetails("r:e2"), "Refund a payment") {
+		t.Errorf("the requests tab shows the closest stub too:\n%s", view.requestDetails("r:e2"))
+	}
+	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasEvents: true, events: []wiremock.ServeEvent{
+		request("e0", 50, "/shipping/quotes", true)}}})
+	if view.requests.rows[0].key != "r:e0" {
+		t.Errorf("a request read late goes in time order, not last")
+	}
+}
+
+func TestJournalCopyNames(t *testing.T) {
+	if got := targetName("payments-mock 2"); got != "payments_mock_2" {
+		t.Errorf("a service's key becomes a file name without dashes, which separate the parts: %q", got)
+	}
+	for name, want := range map[string]string{"4242-0-wiremock.requests.json": "wiremock requests",
+		"4242-17-payments_mock.near-misses.json": "payments_mock near-misses", "4242-1-wiremock.requests.json.partial": ""} {
+		got := ""
+		if match := journalCopy.FindStringSubmatch(name); match != nil {
+			got = match[1] + " " + match[2]
+		}
+		if got != want {
+			t.Errorf("%s is %q, want %q", name, got, want)
+		}
 	}
 }
 

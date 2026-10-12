@@ -7,10 +7,14 @@
 package wiremock
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
+	"os/exec"
 	"strconv"
 	"strings"
 	"time"
@@ -69,12 +73,88 @@ func (c *Client) port() string {
 	return exposed[0]
 }
 
+// BaseURL is where the host reaches WireMock, or "" when its port is not published.
+func (c *Client) BaseURL() string {
+	if hostPort := c.service.HostPort(c.port() + "/tcp"); hostPort != "" {
+		return "http://127.0.0.1:" + hostPort
+	}
+	return ""
+}
+
 // Requests returns the journal's latest requests, newest first; ok is false when WireMock could not be asked.
 func (c *Client) Requests(ctx context.Context, limit int) ([]ServeEvent, bool) {
 	body, ok := c.get(ctx, "/__admin/requests?limit="+strconv.Itoa(limit))
 	if !ok {
 		return nil, false
 	}
+	return ParseJournal(body)
+}
+
+// FollowJournal reads the journal's latest requests every interval, handing each read to onEvents newest first,
+// until ctx ends or the container stops. Tests that reset WireMock take their requests out of the journal, so it
+// is read often: over HTTP when the port is published, else with one docker exec that reads it in a loop, as
+// starting a docker exec for every read is slow.
+func (c *Client) FollowJournal(ctx context.Context, every time.Duration, limit int, onEvents func([]ServeEvent)) {
+	path := "/__admin/requests?limit=" + strconv.Itoa(limit)
+	if c.service.HostPort(c.port()+"/tcp") == "" && c.streamJournal(ctx, path, every, onEvents) {
+		return
+	}
+	for ctx.Err() == nil && c.service.State() == "running" {
+		if body, ok := c.get(ctx, path); ok {
+			if events, ok := ParseJournal(body); ok {
+				onEvents(events)
+			}
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(every):
+		}
+	}
+}
+
+var recordEnd = []byte("\n\x1e\n")
+
+// streamJournal reads the journal in a loop inside the container; it is false when that could not start.
+func (c *Client) streamJournal(ctx context.Context, path string, every time.Duration,
+	onEvents func([]ServeEvent)) bool {
+	if c.service.State() != "running" || c.service.ContainerID() == "" {
+		return false
+	}
+	url := "http://localhost:" + c.port() + path
+	script := fmt.Sprintf(`while :; do curl -s -m 5 '%[1]s' || wget -qO- -T 5 '%[1]s'; printf '\n\036\n'; `+
+		`sleep %.2f; done`, url, every.Seconds())
+	cmd := exec.CommandContext(ctx, "docker", "exec", c.service.ContainerID(), "sh", "-c", script)
+	output, err := cmd.StdoutPipe()
+	if err != nil || cmd.Start() != nil {
+		return false
+	}
+	defer func() {
+		_ = cmd.Process.Kill()
+		_ = cmd.Wait()
+	}()
+	records := bufio.NewScanner(output)
+	records.Buffer(make([]byte, 0, 64*1024), 64*1024*1024)
+	records.Split(func(data []byte, atEOF bool) (int, []byte, error) {
+		if i := bytes.Index(data, recordEnd); i >= 0 {
+			return i + len(recordEnd), data[:i], nil
+		}
+		if atEOF && len(data) > 0 {
+			return len(data), data, nil
+		}
+		return 0, nil, nil
+	})
+	read := false
+	for records.Scan() {
+		if events, ok := ParseJournal(records.Bytes()); ok {
+			read = true
+			onEvents(events)
+		}
+	}
+	return read
+}
+
+// ParseJournal reads a /__admin/requests reply, newest first as WireMock lists them.
+func ParseJournal(body []byte) ([]ServeEvent, bool) {
 	var journal struct {
 		Requests []json.RawMessage `json:"requests"`
 	}
@@ -95,6 +175,11 @@ func (c *Client) NearMisses(ctx context.Context) ([]NearMiss, bool) {
 	if !ok {
 		return nil, false
 	}
+	return ParseNearMisses(body)
+}
+
+// ParseNearMisses reads a /__admin/requests/unmatched/near-misses reply.
+func ParseNearMisses(body []byte) ([]NearMiss, bool) {
 	var found struct {
 		NearMisses []struct {
 			Request struct {

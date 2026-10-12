@@ -143,7 +143,11 @@ image says what it is (WireMock, MongoDB, MariaDB, MySQL, Postgres, Kafka, Redis
 application, and Testcontainers' own helpers are hidden. Logs are kept after the containers are removed.
 
 **WireMock** is read through its admin API (`/__admin/requests`, `near-misses`, `mappings`) with `docker exec`
-and the container's own curl, since Testcontainers rarely publishes its port.
+and the container's own curl, since Testcontainers rarely publishes its port. The journal is read four times a
+second and every request is kept, so tests that reset WireMock between tests take nothing away from the views. A
+reset can still empty the journal a moment after a request arrives, so as each test starts the JUnit listener
+also copies the journal of every WireMock with a published port (testdash names them in the run's directory),
+along with its near misses when a request went unmatched.
 
 **Queries** are what the databases record themselves. MariaDB and MySQL get `log_output=TABLE` and
 `general_log=1`, and testdash reads new rows of `mysql.general_log` each second (with `sql_log_off`, so its reads
