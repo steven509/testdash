@@ -35,7 +35,7 @@ func TestSQLNoiseAndEscapes(t *testing.T) {
 		{"Connect", "root@localhost on shop", true},
 		{"Execute", "insert into items values (1)", false},
 	} {
-		if got := (Query{Kind: c.kind, Text: c.text}).Noise(); got != c.noise {
+		if got := Chatter(c.kind, "", c.text); got != c.noise {
 			t.Errorf("%s %q noise %v", c.kind, c.text, got)
 		}
 	}

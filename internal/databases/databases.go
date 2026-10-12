@@ -45,13 +45,21 @@ type Query struct {
 	Millis     string // how long it took, as MongoDB wrote it; empty when unknown
 	Detail     jsonx.Object
 	seconds    float64 // At as the database wrote it, to ask for what came after it
+	chatter    bool
 }
 
+// Noise is whether the query is a connection pool's session chatter, worked out once when it was read.
 func (q Query) Noise() bool {
-	if q.Target != "" {
+	return q.chatter
+}
+
+// Chatter is whether a query is session chatter: SQL other than queries and statements, or a pool's SET, SHOW
+// and pings. MongoDB's commands never are.
+func Chatter(kind, target, text string) bool {
+	if target != "" {
 		return false
 	}
-	return !sqlCommands[q.Kind] || sqlNoise.MatchString(q.Text)
+	return !sqlCommands[kind] || sqlNoise.MatchString(text)
 }
 
 // QueryLog follows a database's queries and feeds them to onQueries; Error says why it cannot.
@@ -183,7 +191,7 @@ func (s *sqlLog) parse(output string) []Query {
 			continue
 		}
 		queries = append(queries, Query{At: time.Unix(0, int64(seconds*1e9)), Connection: thread, Kind: command,
-			Text: text, seconds: seconds})
+			Text: text, seconds: seconds, chatter: Chatter(command, "", text)})
 	}
 	return queries
 }
