@@ -342,6 +342,22 @@ func TestKafkaMessageHeaders(t *testing.T) {
 	}
 }
 
+func TestServicesKeepTheirOrder(t *testing.T) {
+	m := testModel(t)
+	for _, s := range [][3]string{{"mongodb", "mongodb", "mongo:7"}, {"kafka", "kafka", "apache/kafka:3.8.1"},
+		{"zipkin", "server", "openzipkin/zipkin"}, {"shop", "app", "shop:latest"}, {"mariadb", "mariadb", "mariadb:11"},
+		{"wiremock", "wiremock", "wiremock/wiremock:3"}} {
+		m.Update(services.Added{Service: services.NewService(s[0], s[1], s[2])})
+	}
+	var keys []string
+	for _, entry := range m.orderedServices() {
+		keys = append(keys, entry.svc.Key)
+	}
+	if got := strings.Join(keys, " "); got != "shop wiremock kafka mariadb mongodb zipkin" {
+		t.Errorf("the application, mocks, brokers, databases, the rest: %s", got)
+	}
+}
+
 func TestQuitAsksFirst(t *testing.T) {
 	m := testModel(t)
 	m.Update(key("q"))

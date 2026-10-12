@@ -1029,17 +1029,32 @@ func (m *Model) serviceEntry(service *services.Service) *svcEntry {
 	return nil
 }
 
-// orderedServices are the services as the list shows them: the applications first.
+// orderedServices lists the services the same way every run, whichever started first: the application, then
+// mocks, brokers, databases and the rest, each by name.
 func (m *Model) orderedServices() []*svcEntry {
-	var apps, others []*svcEntry
-	for _, entry := range m.svcs {
-		if entry.svc.IsApp() {
-			apps = append(apps, entry)
-		} else {
-			others = append(others, entry)
+	ordered := append([]*svcEntry(nil), m.svcs...)
+	sort.SliceStable(ordered, func(i, j int) bool {
+		a, b := serviceRank(ordered[i].svc), serviceRank(ordered[j].svc)
+		if a != b {
+			return a < b
 		}
+		return ordered[i].svc.Key < ordered[j].svc.Key
+	})
+	return ordered
+}
+
+func serviceRank(service *services.Service) int {
+	switch service.Kind {
+	case "app":
+		return 0
+	case "wiremock", "mockserver":
+		return 1
+	case "kafka", "rabbitmq":
+		return 2
+	case "mariadb", "mysql", "mongodb", "postgres", "redis", "elasticsearch", "opensearch":
+		return 3
 	}
-	return append(apps, others...)
+	return 4
 }
 
 func (m *Model) serviceAdded(service *services.Service) {
