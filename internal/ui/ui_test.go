@@ -302,13 +302,17 @@ func TestRunShowsTheRunAndUnselectsThePassed(t *testing.T) {
 	m.tree.cursor = "t3"
 	m.selected = map[string]bool{"t1": true, "t3": true, "t4": true}
 	press(m, "enter")
-	if m.tree.cursor != "" || m.focus != m.tree || !strings.Contains(screen(m), "Run · :test") {
-		t.Fatalf("starting a run shows the run, not %q", m.tree.cursor)
+	if s := screen(m); m.tree.cursor != "" || m.focus != m.tree || !strings.Contains(s, "Overview · :test") ||
+		strings.Contains(s, "All tests") {
+		t.Fatalf("starting a run shows its overview, not %q", m.tree.cursor)
 	}
 	for m.runner.Running() {
 		time.Sleep(10 * time.Millisecond)
 	}
 	m.Update(runDoneMsg{code: 1})
+	if s := screen(m); !strings.Contains(s, "All tests") || strings.Contains(s, "Overview") {
+		t.Error("once the run is done, the first row is all the tests again")
+	}
 	m.inRun = map[string]bool{"t1": true, "t3": true, "t4": true}
 	m.progress.States = map[string]*progress.State{"t1": {Status: "passed"}, "t3": {Status: "failed"},
 		"t4": {Status: "skipped"}}

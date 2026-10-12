@@ -577,6 +577,14 @@ func (m *Model) running() bool {
 	return !m.runStarted.IsZero() && m.runFinished.IsZero()
 }
 
+// overviewName names the tree's first row: the run's overview while it runs, else all the tests to pick from.
+func (m *Model) overviewName() string {
+	if m.running() {
+		return "Overview"
+	}
+	return "All tests"
+}
+
 // startRun runs a selection of tests; an empty one runs them all.
 func (m *Model) startRun(selection map[string]bool) tea.Cmd {
 	if m.runner.Running() {

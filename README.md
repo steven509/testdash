@@ -17,7 +17,7 @@ and a badge (ready, running, passed or failed). A line under it fills as tests f
 and red once one fails. Click the task to choose another.
 
 **1 · Tests** is the task's tests by class, including `@Nested` classes and parameterised tests, each with its
-result and time from the last run. The first row, *All tests*, is the run as a whole. `space` selects a test or
+result and time from the last run. The first row, *All tests*, is the run as a whole, and while a run goes it is its *Overview*. `space` selects a test or
 a class (`●` marks what is selected, `◐` a class partly selected), and `enter` or `r` runs the selection. With nothing selected, `enter` runs the
 test or class under the cursor and `r` runs everything. `/` filters by name (case, spaces and punctuation ignored) and `s` shows
 only the failed or unfinished tests.
@@ -28,7 +28,7 @@ queries) and a dot for whether it runs.
 
 **3 · Details** shows whatever is selected in the panel you were last in:
 
-- *All tests*: the run's dashboard: its results, what is running now, the failures with their messages, a
+- *All tests* or *Overview*: the run's dashboard: its results, what is running now, the failures with their messages, a
   sparkline for each source (tests finishing, Gradle, each log, requests, messages, queries) over the run,
   every class on the run's time line (its setup a thin line, then each test coloured by how it did), and while
   it runs, a live feed of the newest from the build and the services. Once it is done, the slowest tests.

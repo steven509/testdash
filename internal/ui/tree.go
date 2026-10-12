@@ -329,7 +329,7 @@ func (t *testTree) right(m *Model, id string) string {
 
 func (t *testTree) name(m *Model, id string) string {
 	if id == "" {
-		return style.Bold.Render("All tests")
+		return style.Bold.Render(m.overviewName())
 	}
 	entry := m.entries[id]
 	if entry.Kind == "class" {

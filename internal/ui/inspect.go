@@ -73,10 +73,14 @@ func (in *inspector) focusables(m *Model) []any {
 func (in *inspector) title(m *Model) (string, string) {
 	id := m.tree.cursor
 	if id == "" {
-		if m.testTask != nil {
-			return "Run · " + m.testTask.Path, ""
+		name := "Run"
+		if m.running() {
+			name = m.overviewName()
 		}
-		return "Run", ""
+		if m.testTask != nil {
+			return name + " · " + m.testTask.Path, ""
+		}
+		return name, ""
 	}
 	entry := m.entries[id]
 	if entry == nil {
