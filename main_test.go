@@ -40,3 +40,11 @@ func TestCommandOf(t *testing.T) {
 		t.Errorf("a list command stays as it is: %q", got)
 	}
 }
+
+func TestKeycastMode(t *testing.T) {
+	for value, want := range map[string]string{"": "", "1": "all", "all": "all", "shortcuts": "shortcuts"} {
+		if got := keycastMode(value); got != want {
+			t.Errorf("TESTDASH_KEYCAST=%s is %q, want %q", value, got, want)
+		}
+	}
+}

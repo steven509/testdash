@@ -107,14 +107,19 @@ func tableZone(m *Model, r rect, t *table) zone {
 	}, wheel: t.scroll}
 }
 
-func tableLevel(t *table, onSelect func() tea.Cmd) level {
-	return level{raw: func(k tea.KeyPressMsg) (bool, tea.Cmd) {
+// tableLevel moves through a table. With onSelect, enter acts on the row, as label says.
+func tableLevel(t *table, label string, onSelect func() tea.Cmd) level {
+	l := level{raw: func(k tea.KeyPressMsg) (bool, tea.Cmd) {
 		handled, selected := t.key(k)
 		if selected && onSelect != nil {
 			return true, onSelect()
 		}
 		return handled, nil
 	}}
+	if onSelect != nil {
+		l.bindings = []binding{bind("enter", label, onSelect)}
+	}
+	return l
 }
 
 func detailLevel(b *textbox) level {
@@ -123,7 +128,7 @@ func detailLevel(b *textbox) level {
 
 func tabBindings(t *tabbedView, onTab func()) []binding {
 	return []binding{
-		bind("[ left", "Tab", func() tea.Cmd { t.step(-1); onTab(); return nil }).hidden().first(),
+		bind("[ left", "Previous tab", func() tea.Cmd { t.step(-1); onTab(); return nil }).hidden().first(),
 		bind("] right", "Next tab", func() tea.Cmd { t.step(1); onTab(); return nil }).shown("[ ]").first(),
 	}
 }
@@ -508,7 +513,7 @@ func (v *wiremockView) levels(m *Model, focus any) []level {
 	if focus == detail {
 		return []level{detailLevel(detail), own}
 	}
-	return []level{tableLevel(t, nil), own}
+	return []level{tableLevel(t, "", nil), own}
 }
 
 func (v *wiremockView) setWindow(m *Model, w *window) {
@@ -1064,7 +1069,7 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 	case "log":
 		return append(v.log.levels(m, focus), own)
 	case "topics":
-		return []level{tableLevel(v.topicTab, func() tea.Cmd {
+		return []level{tableLevel(v.topicTab, "Messages", func() tea.Cmd {
 			if key := v.topicTab.cursorKey(); key != "" {
 				v.topic = key
 				v.filtered(m)
@@ -1072,12 +1077,12 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 			return nil
 		}), own}
 	case "groups":
-		return []level{tableLevel(v.groupTab, nil), own}
+		return []level{tableLevel(v.groupTab, "", nil), own}
 	}
 	if focus == v.detail {
 		return []level{detailLevel(v.detail), own}
 	}
-	return []level{tableLevel(v.table, nil), own}
+	return []level{tableLevel(v.table, "", nil), own}
 }
 
 func (v *kafkaView) setWindow(m *Model, w *window) {
@@ -1367,7 +1372,7 @@ func (v *dbView) levels(m *Model, focus any) []level {
 	if focus == v.detail {
 		return []level{detailLevel(v.detail), own}
 	}
-	return []level{tableLevel(v.table, nil), own}
+	return []level{tableLevel(v.table, "", nil), own}
 }
 
 func (v *dbView) setWindow(m *Model, w *window) {

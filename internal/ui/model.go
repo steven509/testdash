@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
@@ -82,6 +83,10 @@ func displayKey(key string) string {
 		return "←"
 	case key == "right":
 		return "→"
+	case key == "up":
+		return "↑"
+	case key == "down":
+		return "↓"
 	}
 	return key
 }
@@ -182,7 +187,15 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.FocusMsg:
 		return m, hideCursor()
 	case tea.KeyPressMsg:
-		return m, m.key(msg)
+		if m.opts.Keycast == "" {
+			return m, m.key(msg)
+		}
+		typed := m.typing(msg)
+		cmd := m.key(msg)
+		if m.opts.Keycast != "shortcuts" || m.keyShortcut && !movementKeys[msg.String()] {
+			m.keycast.add(msg, typed, m.keyLabel)
+		}
+		return m, cmd
 	case tea.PasteMsg:
 		if p, ok := m.popup.(*palette); ok {
 			p.input.insert(msg.Content)
@@ -352,6 +365,7 @@ func (m *Model) chain() []level {
 }
 
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
+	m.keyLabel, m.keyShortcut = "", false
 	if m.popup != nil {
 		return m.popup.key(m, k)
 	}
@@ -361,6 +375,7 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 		for _, l := range chain {
 			for _, b := range l.bindings {
 				if b.priority && b.matches(key) && b.active() {
+					m.keyLabel, m.keyShortcut = b.label, true
 					return b.run()
 				}
 			}
@@ -368,17 +383,44 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	}
 	if raw := chain[0].raw; raw != nil {
 		if handled, cmd := raw(k); handled {
+			m.keyLabel, m.keyShortcut = rawLabel(chain[0], key)
 			return cmd
 		}
 	}
 	for _, l := range chain {
 		for _, b := range l.bindings {
 			if !b.priority && b.matches(key) && b.active() {
+				m.keyLabel, m.keyShortcut = b.label, true
 				return b.run()
 			}
 		}
 	}
 	return nil
+}
+
+// rawLabel names what the focused widget did with a key it took itself: its level's own binding for the key
+// says, as that is what the footer shows, and makes it a shortcut; g and G go to the top and bottom of a list.
+func rawLabel(l level, key string) (string, bool) {
+	for _, b := range l.bindings {
+		if b.matches(key) && b.active() {
+			return b.label, true
+		}
+	}
+	return map[string]string{"g": "Top", "G": "Bottom"}[key], false
+}
+
+// movementKeys move around rather than do something, so a keycast of shortcuts leaves them out.
+var movementKeys = map[string]bool{"up": true, "down": true, "left": true, "right": true, "home": true, "end": true,
+	"pgup": true, "pgdown": true}
+
+// typing is whether a key types into a field rather than doing something.
+func (m *Model) typing(k tea.KeyPressMsg) bool {
+	text := []rune(k.Text)
+	if len(text) != 1 || !unicode.IsPrint(text[0]) {
+		return false
+	}
+	_, inPalette := m.popup.(*palette)
+	return inPalette || (m.popup == nil && m.focusedInput() != nil)
 }
 
 // footerBindings are the shown, enabled bindings of the chain, the focused widget's first; an inner binding
@@ -621,6 +663,7 @@ func (m *Model) render() string {
 	if m.popup != nil {
 		m.popup.render(m, screen)
 	}
+	m.renderKeycast(screen)
 	canvas := style.FgBg(style.Text, style.Base)
 	for i, line := range screen {
 		screen[i] = style.WithBg(line, canvas)

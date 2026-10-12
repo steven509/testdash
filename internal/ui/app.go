@@ -55,6 +55,7 @@ type Options struct {
 	IncludeAllContainers bool
 	RunDir               string
 	ExtraLogs            []ExtraLog // from .testdash.json
+	Keycast              string     // shows the keys pressed, for recordings and demos: all, or only shortcuts
 }
 
 // ExtraLog is a log from .testdash.json: a file, or a command's output.
@@ -162,6 +163,9 @@ type Model struct {
 	popup         popup
 	toasts        []*toast
 	toastSeq      int
+	keycast       keycast
+	keyLabel      string // what the last key did, as its binding names it
+	keyShortcut   bool   // whether the last key ran a binding, rather than moving, typing or answering a dialog
 	zones         []zone
 	dirty         bool
 	frame         string

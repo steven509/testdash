@@ -194,9 +194,7 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 func (in *inspector) levels(m *Model, focus any) []level {
 	switch focus {
 	case in.events:
-		return []level{tableLevel(in.events, func() tea.Cmd { in.open(m); return nil }), {bindings: []binding{
-			bind("enter", "Open in its service", func() tea.Cmd { in.open(m); return nil }),
-		}}}
+		return []level{tableLevel(in.events, "Open in its service", func() tea.Cmd { in.open(m); return nil })}
 	case in.event:
 		return []level{detailLevel(in.event)}
 	}

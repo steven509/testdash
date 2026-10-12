@@ -486,26 +486,29 @@ func (t *testTree) row(m *Model, line treeLine, width int, isCursor, focused boo
 
 func (t *testTree) levels(m *Model) []level {
 	if m.focus == t.filter {
+		done := func() tea.Cmd {
+			if t.filter.Value() == "" {
+				t.filterShown = false
+			} else if t.cursor == "" && len(t.lines()) > 1 {
+				t.moveTo(1) // the first match, so enter runs what the filter found rather than everything
+			}
+			m.setFocus(t)
+			return nil
+		}
+		clear := func() tea.Cmd { t.clearFilter(m); return nil }
 		return []level{{raw: func(k tea.KeyPressMsg) (bool, tea.Cmd) {
 			switch k.String() {
 			case "enter", "down":
-				if t.filter.Value() == "" {
-					t.filterShown = false
-				} else if t.cursor == "" && len(t.lines()) > 1 {
-					t.moveTo(1) // the first match, so enter runs what the filter found rather than everything
-				}
-				m.setFocus(t)
-				return true, nil
+				return true, done()
 			case "esc":
-				t.clearFilter(m)
-				return true, nil
+				return true, clear()
 			}
 			handled, changed := t.filter.key(k)
 			if changed {
 				return true, t.inputChanged(m, t.filter)
 			}
 			return handled, nil
-		}}}
+		}, bindings: []binding{bind("enter", "Done", done), bind("esc", "Clear", clear)}}}
 	}
 	return []level{{raw: func(k tea.KeyPressMsg) (bool, tea.Cmd) { return t.key(m, k) }, bindings: []binding{
 		bind("space", "Select", func() tea.Cmd {

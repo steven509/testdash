@@ -148,6 +148,7 @@ func run(argv []string) int {
 		IncludeAllContainers: opts.allContainers || prefs.AllContainers,
 		RunDir:               runDir,
 		ExtraLogs:            cfg.Logs,
+		Keycast:              keycastMode(os.Getenv("TESTDASH_KEYCAST")),
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -284,4 +285,12 @@ func randomHex(n int) string {
 	b := make([]byte, n)
 	_, _ = rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+// keycastMode is what TESTDASH_KEYCAST asks to show: only the shortcuts, or any other value every key.
+func keycastMode(value string) string {
+	if value == "" || value == "shortcuts" {
+		return value
+	}
+	return "all"
 }

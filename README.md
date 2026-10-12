@@ -135,6 +135,9 @@ testdash --info                            # arguments testdash does not know ar
 testdash -- npm test                       # any other command: no test list, the service views still work
 ```
 
+`TESTDASH_KEYCAST=1 testdash` shows each key you press, and what it did, at the bottom of the screen, for screen
+recordings and demos; `TESTDASH_KEYCAST=shortcuts` shows only the shortcuts, leaving out moving and typing.
+
 A task path and Gradle's `--tests` filters (as many as you like, with `*` wildcards, a class or a class and
 method, the package left out when the pattern starts with a capital) skip picking: the run starts at once, and
 the tests it matches are selected, so `r` runs them again. When the tests have not been listed yet, testdash

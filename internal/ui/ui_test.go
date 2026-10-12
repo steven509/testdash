@@ -628,6 +628,62 @@ func TestFooterShowsZoom(t *testing.T) {
 	}
 }
 
+func TestKeycastShowsTheKeysAndWhatTheyDid(t *testing.T) {
+	m := testModel(t)
+	m.opts.Keycast = "all"
+	castLine := func() string { return strings.Split(screen(m), "\n")[m.height-3] }
+	press(m, "down", "down", "space")
+	if line := castLine(); !strings.Contains(line, "↓  ×2") || !strings.Contains(line, "space  Select") {
+		t.Errorf("the keys and what they did show over the bottom of the screen: %q", line)
+	}
+	press(m, "/")
+	typeText(m, "one")
+	var shown []string
+	for _, k := range m.keycast.keys {
+		shown = append(shown, strings.TrimSpace(k.key+" "+k.label))
+	}
+	if got := strings.Join(shown, ", "); got != "space Select, / Filter, one" {
+		t.Errorf("what is typed shows as one piece, after the last keys: %s", got)
+	}
+	press(m, "enter")
+	if last := m.keycast.keys[len(m.keycast.keys)-1]; last.label != "Done" {
+		t.Errorf("a key a field takes itself is named by its own binding: %+v", last)
+	}
+	m.keycast.until = time.Now().Add(-time.Millisecond)
+	m.Update(tickMsg{})
+	if line := castLine(); strings.Contains(line, "Filter") {
+		t.Errorf("the keys go once nothing is pressed for a moment: %q", line)
+	}
+	press(m, "ctrl+s", "down")
+	if m.popup == nil {
+		t.Fatal("ctrl+s opens the settings")
+	}
+	if last := m.keycast.keys[len(m.keycast.keys)-1]; last.key != "↓" || last.label != "" {
+		t.Errorf("a key in a dialog shows without the last key's label: %+v", last)
+	}
+	m.popup = nil
+	m.opts.Keycast = ""
+	press(m, "esc")
+	if last := m.keycast.keys[len(m.keycast.keys)-1]; last.key != "↓" {
+		t.Error("without TESTDASH_KEYCAST no keys are kept")
+	}
+}
+
+func TestKeycastOfShortcutsLeavesOutMovingAndTyping(t *testing.T) {
+	m := testModel(t)
+	m.opts.Keycast = "shortcuts"
+	press(m, "down", "down", "space", "g", "/")
+	typeText(m, "one")
+	press(m, "esc", "ctrl+s", "down", "right")
+	var shown []string
+	for _, k := range m.keycast.keys {
+		shown = append(shown, k.key+" "+k.label)
+	}
+	if got := strings.Join(shown, ", "); got != "/ Filter, esc Clear, ^s Settings" {
+		t.Errorf("only the keys that did something by name show: %s", got)
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {
