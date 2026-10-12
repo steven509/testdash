@@ -111,3 +111,30 @@ func TestBuildRoot(t *testing.T) {
 		t.Errorf("BuildRoot = %q, want %q", got, root)
 	}
 }
+
+func TestMatchTestsLikeGradle(t *testing.T) {
+	task := &TestTask{Path: ":test", Entries: entries()}
+	for _, c := range []struct {
+		patterns []string
+		want     []string
+	}{
+		{[]string{"com.a.FooTest"}, []string{"t1", "t2"}},
+		{[]string{"com.a.FooTest.one"}, []string{"t1"}},
+		{[]string{"FooTest"}, []string{"t1", "t2"}},
+		{[]string{"*Inner"}, []string{"t3"}},
+		{[]string{"com.a.*"}, []string{"t1", "t2", "t3", "t4"}},
+		{[]string{"*.four", "BarTest"}, []string{"t4"}},
+		{[]string{"fooTest"}, nil},
+	} {
+		got := MatchTests(task, c.patterns)
+		var ids []string
+		for _, id := range []string{"t1", "t2", "t3", "t4"} {
+			if got[id] {
+				ids = append(ids, id)
+			}
+		}
+		if !reflect.DeepEqual(ids, c.want) {
+			t.Errorf("%q matched %v, want %v", c.patterns, ids, c.want)
+		}
+	}
+}

@@ -11,8 +11,11 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"testdash/internal/jsonx"
 )
@@ -331,4 +334,38 @@ func orNil(s string) *string {
 		return nil
 	}
 	return &s
+}
+
+// MatchTests returns the leaves a run with Gradle's --tests patterns would run, as Gradle matches them: a
+// pattern matches a test's class, or its class and method, in full; * matches anything, dots included; and a
+// pattern that starts with an upper-case letter also matches simple class names, without their package.
+func MatchTests(task *TestTask, patterns []string) map[string]bool {
+	var matchers []*regexp.Regexp
+	var simple []bool
+	for _, pattern := range patterns {
+		quoted := regexp.QuoteMeta(pattern)
+		matchers = append(matchers, regexp.MustCompile("^"+strings.ReplaceAll(quoted, `\*`, ".*")+"$"))
+		first, _ := utf8.DecodeRuneInString(pattern)
+		simple = append(simple, unicode.IsUpper(first))
+	}
+	matched := map[string]bool{}
+	for _, e := range task.Entries {
+		if !e.IsLeaf() {
+			continue
+		}
+		candidates := []string{e.ClassName, e.ClassName + "." + e.Method}
+		shortName := e.ClassName[strings.LastIndex(e.ClassName, ".")+1:]
+		for i, matcher := range matchers {
+			names := candidates
+			if simple[i] {
+				names = append(names, shortName, shortName+"."+e.Method)
+			}
+			for _, name := range names {
+				if matcher.MatchString(name) {
+					matched[e.ID] = true
+				}
+			}
+		}
+	}
+	return matched
 }
