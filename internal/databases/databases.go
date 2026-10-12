@@ -31,8 +31,9 @@ var QueryKinds = map[string]bool{"mariadb": true, "mysql": true, "mongodb": true
 const mongoProfileBytes = 64 * 1024 * 1024 // the default 1MB profile collection rolls over within a test or two
 
 // The session chatter a JDBC pool sends: hidden until asked for.
+// sqlNoise is what pools, drivers and the official images' healthcheck.sh send to keep or check a session.
 var sqlNoise = regexp.MustCompile(`(?i)^\s*(SET\s|SHOW\s|SELECT\s+@@|SELECT\s+1\s*$|/\*\s*ping|SELECT\s+DATABASE\(\)|` +
-	`SELECT\s+VERSION\(\))`)
+	`SELECT\s+VERSION\(\)|select\s+1\s+from\s+information_schema\.ENGINES\s+WHERE\s+engine\s*=\s*'innodb')`)
 
 var sqlCommands = map[string]bool{"Query": true, "Execute": true} // Connect, Quit, Init DB, Prepare and the like are noise too
 

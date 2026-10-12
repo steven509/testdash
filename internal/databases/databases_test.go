@@ -32,6 +32,7 @@ func TestSQLNoiseAndEscapes(t *testing.T) {
 		{"Query", "SET autocommit=1", true},
 		{"Query", "SELECT @@session.transaction_isolation", true},
 		{"Query", "/* ping */ SELECT 1", true},
+		{"Query", "select 1 from information_schema.ENGINES WHERE engine='innodb' AND support in ('YES', 'DEFAULT', 'ENABLED')", true},
 		{"Connect", "root@localhost on shop", true},
 		{"Execute", "insert into items values (1)", false},
 	} {
