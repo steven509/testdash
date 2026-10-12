@@ -122,7 +122,12 @@ func TestTreeFiltersSelectsAndRuns(t *testing.T) {
 	if !m.tree.visible["t4"] || m.tree.visible["t1"] {
 		t.Fatalf("a filter ignoring spaces and punctuation finds the sign-up test: %v", m.tree.visible)
 	}
-	press(m, "enter", "a")
+	press(m, "enter")
+	if m.focus != m.tree || m.tree.cursor == "" {
+		t.Fatalf("enter leaves the filter on its first match, so another enter runs that, not everything: %q",
+			m.tree.cursor)
+	}
+	press(m, "a")
 	if !m.selected["t4"] || len(m.selected) != 1 {
 		t.Fatalf("a selects what the filter shows: %v", m.selected)
 	}
@@ -134,7 +139,7 @@ func TestTreeFiltersSelectsAndRuns(t *testing.T) {
 	if len(m.selected) != 0 {
 		t.Fatal("a second Esc clears the selection")
 	}
-	press(m, "down", "space")
+	press(m, "home", "down", "space")
 	if len(m.selected) != 3 || !m.selected["t3"] {
 		t.Fatalf("space on a class selects its tests, nested ones too: %v", m.selected)
 	}

@@ -486,6 +486,8 @@ func (t *testTree) levels(m *Model) []level {
 			case "enter", "down":
 				if t.filter.Value() == "" {
 					t.filterShown = false
+				} else if t.cursor == "" && len(t.lines()) > 1 {
+					t.moveTo(1) // the first match, so enter runs what the filter found rather than everything
 				}
 				m.setFocus(t)
 				return true, nil
