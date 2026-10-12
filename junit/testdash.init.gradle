@@ -1,0 +1,84 @@
+// Gradle init script testdash passes with -I. It never changes what a build does unless testdash asks:
+//
+// -Ptestdash.dir=DIR (run mode): every Test task that runs gets testdash's JUnit Platform listener on its
+//   classpath and writes its progress to DIR. Applied once the task graph is ready, after every build script
+//   has configured its Test tasks, so a build that sets a test classpath itself cannot overwrite it.
+//
+// -Ptestdash.discover=DIR (discovery mode): adds a testdashDiscover task that lists every JUnit Platform Test
+//   task's tests with the JUnit discovery API, one DIR/<task>.json per task, without running them. It compiles
+//   the tests but runs none of a Test task's other dependencies.
+//
+// Both need -Ptestdash.listenerJar, the jar testdash builds from junit/*.java.
+
+def props = gradle.startParameter.projectProperties
+def listenerJar = props['testdash.listenerJar']
+def runDir = props['testdash.dir']
+def discoverDir = props['testdash.discover']
+def quietTestOutput = props['testdash.quietTestOutput'] == 'true'
+
+if (runDir && listenerJar) {
+    gradle.taskGraph.whenReady { graph ->
+        graph.allTasks.findAll { it instanceof Test }.each { Test test ->
+            test.classpath = test.classpath + test.project.files(listenerJar)
+            test.systemProperty('testdash.dir', runDir)
+            if (quietTestOutput) {
+                // the containers' logs have their own views
+                test.testLogging.showStandardStreams = false
+            }
+        }
+    }
+}
+
+if (discoverDir && listenerJar) {
+    gradle.projectsEvaluated {
+        def discoveries = []
+        gradle.rootProject.allprojects { project ->
+            project.tasks.withType(Test).each { Test test ->
+                def options = test.options
+                if (!(options instanceof org.gradle.api.tasks.testing.junitplatform.JUnitPlatformOptions)) {
+                    return
+                }
+                def output = new File(discoverDir, test.path.replaceAll('[^A-Za-z0-9]', '_') + '.json')
+                def filters = []
+                options.includeTags.each { filters += ['--include-tag', it] }
+                options.excludeTags.each { filters += ['--exclude-tag', it] }
+                options.includeEngines.each { filters += ['--include-engine', it] }
+                options.excludeEngines.each { filters += ['--exclude-engine', it] }
+                discoveries << project.tasks.register('testdashDiscover' + test.name.capitalize(), JavaExec) {
+                    description = "Lists ${test.path}'s tests for testdash without running them"
+                    classpath = test.classpath + project.files(listenerJar) + project.files({ launcherIfMissing(project, test) })
+                    if (it.hasProperty('mainClass')) {
+                        mainClass.set('testdash.Discover')
+                    } else {
+                        main = 'testdash.Discover'
+                    }
+                    args([test.path, output.absolutePath] + filters)
+                    args(test.testClassesDirs.files.collect { it.absolutePath })
+                    systemProperties(test.systemProperties)
+                    if (test.hasProperty('javaLauncher') && test.javaLauncher.present) {
+                        javaLauncher.set(test.javaLauncher)
+                    }
+                }
+            }
+        }
+        gradle.rootProject.tasks.register('testdashDiscover') {
+            dependsOn discoveries
+        }
+    }
+}
+
+// Gradle supplies the JUnit Platform launcher to Test tasks itself, so a build often does not declare it.
+// Discovery runs outside a Test task and needs the launcher matching the engine on the classpath.
+static List<File> launcherIfMissing(project, Test test) {
+    def jars = test.classpath.files
+    if (jars.any { it.name.startsWith('junit-platform-launcher-') }) {
+        return []
+    }
+    def engine = jars.find { it.name ==~ /junit-platform-engine-.+\.jar/ }
+    if (engine == null) {
+        return []
+    }
+    def version = engine.name - 'junit-platform-engine-' - '.jar'
+    def launcher = project.dependencies.create("org.junit.platform:junit-platform-launcher:${version}")
+    return project.configurations.detachedConfiguration(launcher).resolve().toList()
+}
