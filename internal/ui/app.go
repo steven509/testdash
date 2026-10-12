@@ -189,8 +189,7 @@ func New(ctx context.Context, opts Options, prefs settings.Settings) *Model {
 			scope = append(scope, dir)
 		}
 	}
-	m.watcher = services.NewWatcher(ctx, func(msg any) { m.send(msg) }, time.Now(), scope,
-		opts.IncludeAllContainers, m.claims)
+	m.watcher = services.NewWatcher(ctx, func(msg any) { m.send(msg) }, scope, opts.IncludeAllContainers, m.claims)
 	m.tree = newTestTree()
 	m.serviceList = &serviceList{}
 	m.inspector = newInspector()
@@ -814,6 +813,7 @@ func (m *Model) explainPort(msg portHolderMsg) {
 
 func (m *Model) runDone(code int) tea.Cmd {
 	m.exitCode, m.runFinished = code, time.Now()
+	m.watcher.EndRun(m.runFinished)
 	cmd := m.tick()
 	took := duration(m.runFinished.Sub(m.runStarted).Milliseconds())
 	summary := m.runSummary()

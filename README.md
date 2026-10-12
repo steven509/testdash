@@ -171,8 +171,8 @@ jars from your Gradle cache, using only JUnit Platform 1.0 API, and kept in `~/.
 **Services** are the containers the run started. When the tests use Testcontainers, the listener reports the
 labels Testcontainers will clean up by, its session id and each Compose project's name (registered before the
 project starts), and only containers with those are taken, so another run's stay out even when it uses the same
-Compose file. Otherwise they are the containers created after the run started that Testcontainers labelled, or
-whose Compose file lives in the repo. Each is named after its Compose service; its
+Compose file. Otherwise they are the containers created while the run went that Testcontainers labelled, or
+whose Compose file lives in the repo; before the first run there are none. Each is named after its Compose service; its
 image says what it is (WireMock, MongoDB, MariaDB, MySQL, Postgres, Kafka, Redis and more), anything else is the
 application, and Testcontainers' own helpers are hidden. Logs are kept after the containers are removed.
 

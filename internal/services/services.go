@@ -165,8 +165,8 @@ type follower struct {
 
 // Watcher finds the containers a run starts and follows their logs. When the run's tests use Testcontainers,
 // they name the labels of their containers (see Claims), so only those are taken, even while another run starts
-// containers from the same repo. Otherwise a container is the run's when it was created after the run started
-// and Testcontainers labelled it, or its Compose file is in the repo.
+// containers from the same repo. Otherwise a container is the run's when it was created while the run went and
+// Testcontainers labelled it, or its Compose file is in the repo. Before the first run, no container is.
 type Watcher struct {
 	ctx        context.Context
 	send       func(any)
@@ -175,7 +175,8 @@ type Watcher struct {
 	includeAll bool
 
 	mu          sync.Mutex
-	since       time.Time
+	since       time.Time // when the run started; zero before the first
+	until       time.Time // when it finished; zero while it runs
 	gen         int
 	runCtx      context.Context
 	runCancel   context.CancelFunc
@@ -190,9 +191,8 @@ type Watcher struct {
 	pendingKeys []string
 }
 
-func NewWatcher(ctx context.Context, send func(any), since time.Time, scopeDirs []string, includeAll bool,
-	claims *Claims) *Watcher {
-	w := &Watcher{ctx: ctx, send: send, claims: claims, since: since, includeAll: includeAll,
+func NewWatcher(ctx context.Context, send func(any), scopeDirs []string, includeAll bool, claims *Claims) *Watcher {
+	w := &Watcher{ctx: ctx, send: send, claims: claims, includeAll: includeAll,
 		services: map[string]*Service{}, byContainer: map[string]*Service{}, followers: map[string]*follower{},
 		lastSeen: map[string]time.Time{}, ignored: map[string]bool{}, retired: map[string]bool{},
 		firstSeen: map[string]time.Time{}, pending: map[string][]*logformat.Line{}}
@@ -219,7 +219,7 @@ func Available() bool {
 func (w *Watcher) NewRun(startedAt time.Time) int {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	w.since = startedAt
+	w.since, w.until = startedAt, time.Time{}
 	w.runCancel()
 	w.runCtx, w.runCancel = context.WithCancel(w.ctx)
 	w.followers = map[string]*follower{}
@@ -237,6 +237,13 @@ func (w *Watcher) NewRun(startedAt time.Time) int {
 	}
 	w.gen++
 	return w.gen
+}
+
+// EndRun ends the run's scope: containers created after it are someone else's. Its containers stay followed.
+func (w *Watcher) EndRun(finishedAt time.Time) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.until = finishedAt
 }
 
 func (w *Watcher) Run() {
@@ -345,8 +352,7 @@ func (w *Watcher) belongs(id string, found details) belonging {
 	if w.includeAll {
 		return ours
 	}
-	created := parseTime(found.Created)
-	if w.retired[id] || created.IsZero() || created.Before(w.since.Add(-clockSlack)) {
+	if w.retired[id] || !w.createdInRun(parseTime(found.Created)) {
 		return notOurs
 	}
 	labels := found.Config.Labels
@@ -384,13 +390,24 @@ func (w *Watcher) belongs(id string, found details) belonging {
 			return ours
 		}
 	}
-	compose := labels["com.docker.compose.project.config_files"] + " " + labels["com.docker.compose.project.working_dir"]
-	for _, dir := range w.scopeDirs {
-		if strings.Contains(compose, dir) {
-			return ours
+	composePaths := append(strings.Split(labels["com.docker.compose.project.config_files"], ","),
+		labels["com.docker.compose.project.working_dir"])
+	for _, path := range composePaths {
+		for _, dir := range w.scopeDirs {
+			if path != "" && (path == dir || strings.HasPrefix(path, strings.TrimSuffix(dir, "/")+"/")) {
+				return ours
+			}
 		}
 	}
 	return notOurs
+}
+
+// createdInRun is whether a container was created while the run went, give or take Docker's clock.
+func (w *Watcher) createdInRun(created time.Time) bool {
+	if w.since.IsZero() || created.IsZero() || created.Before(w.since.Add(-clockSlack)) {
+		return false
+	}
+	return w.until.IsZero() || !created.After(w.until.Add(clockSlack))
 }
 
 // serviceFor names a container's service and records it; the caller holds the lock.
