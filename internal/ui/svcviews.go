@@ -637,14 +637,32 @@ func (v *kafkaView) received(m *Model, batch []kafka.Message) {
 	if len(fresh) == 0 {
 		return
 	}
+	earlier := func(a, b kafka.Message) bool { return a.At.Before(b.At) }
+	inOrder := sort.SliceIsSorted(fresh, func(i, j int) bool { return earlier(fresh[i], fresh[j]) }) &&
+		(len(v.messages) == 0 || !earlier(fresh[0], v.messages[len(v.messages)-1]))
 	v.messages = append(v.messages, fresh...)
-	if len(v.messages) > maxMessages {
+	if !inOrder { // the consumer catches up one partition at a time; the table is in time order all the same
+		sort.SliceStable(v.messages, func(i, j int) bool { return earlier(v.messages[i], v.messages[j]) })
+	}
+	switch {
+	case len(v.messages) > maxMessages:
 		v.messages = append([]kafka.Message(nil), v.messages[len(v.messages)-maxMessages:]...)
-		v.fillMessages()
-	} else {
+		v.refillMessages()
+	case !inOrder:
+		v.refillMessages()
+	default:
 		v.addRows(fresh)
 	}
 	v.fillTopics()
+}
+
+// refillMessages builds the table again, on the same message unless it was following the newest.
+func (v *kafkaView) refillMessages() {
+	key, following := v.table.cursorKey(), v.table.cursor >= len(v.table.rows)-1
+	v.fillMessages()
+	if !following {
+		v.table.selectKey(key)
+	}
 }
 
 func (v *kafkaView) shown(message kafka.Message) bool {

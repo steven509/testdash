@@ -364,6 +364,30 @@ func TestKafkaMessageHeaders(t *testing.T) {
 	}
 }
 
+func TestKafkaMessagesStayInTimeOrder(t *testing.T) {
+	m := testModel(t)
+	service := services.NewService("kafka", "kafka", "apache/kafka:3.8.0")
+	m.Update(services.Added{Service: service})
+	view := m.serviceEntry(service).view.(*kafkaView)
+	at := time.Now()
+	message := func(offset int64, seconds int) kafka.Message {
+		return kafka.Message{At: at.Add(time.Duration(seconds) * time.Second), Topic: "orders", Partition: int(offset % 2),
+			Offset: offset}
+	}
+	m.Update(kafkaMessagesMsg{view: view, batch: []kafka.Message{message(3, 3), message(4, 4)}})
+	m.Update(kafkaMessagesMsg{view: view, batch: []kafka.Message{message(1, 1), message(2, 2)}}) // the other partition
+	var order []string
+	for _, row := range view.table.rows {
+		order = append(order, row.key)
+	}
+	if want := "orders:1:1 orders:0:2 orders:1:3 orders:0:4"; strings.Join(order, " ") != want {
+		t.Errorf("messages are in time order: %v", order)
+	}
+	if view.table.cursorKey() != "orders:0:4" {
+		t.Errorf("the cursor follows the newest, not %s", view.table.cursorKey())
+	}
+}
+
 func TestServicesKeepTheirOrder(t *testing.T) {
 	m := testModel(t)
 	for _, s := range [][3]string{{"mongodb", "mongodb", "mongo:7"}, {"kafka", "kafka", "apache/kafka:3.8.1"},
