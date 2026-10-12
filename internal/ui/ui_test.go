@@ -13,12 +13,14 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/databases"
 	"github.com/steven509/testdash/internal/jsonx"
 	"github.com/steven509/testdash/internal/kafka"
 	"github.com/steven509/testdash/internal/logformat"
 	"github.com/steven509/testdash/internal/progress"
 	"github.com/steven509/testdash/internal/services"
 	"github.com/steven509/testdash/internal/settings"
+	"github.com/steven509/testdash/internal/style"
 	"github.com/steven509/testdash/internal/wiremock"
 )
 
@@ -363,6 +365,45 @@ func TestKafkaMessageHeaders(t *testing.T) {
 	}
 	if strings.Contains(s, `"id": 1`) {
 		t.Error("the headers tab shows the headers, not the value")
+	}
+}
+
+func TestSQLShowsFormattedThenRaw(t *testing.T) {
+	m := testModel(t)
+	service := services.NewService("mariadb", "mariadb", "mariadb:11")
+	m.Update(services.Added{Service: service})
+	view := m.serviceEntry(service).view.(*dbView)
+	query := "UPDATE products SET stock = stock - 2 WHERE sku = 'MP-030' AND stock >= 2"
+	m.Update(queriesMsg{view: view, batch: []databases.Query{{At: time.Now(), Connection: "7", Kind: "Query",
+		Text: query}}})
+	m.serviceList.selectEntry(m, m.serviceEntry(service))
+	m.setFocus(m.serviceList)
+	m.setFocus(view.table)
+	s := screen(m)
+	for _, want := range []string{"Formatted", "Raw", "UPDATE products", "SET", "stock = stock - 2", "AND stock >= 2"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the query is laid out first, with a tab for it raw; %q is missing:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, "SET stock = stock - 2 WHERE") {
+		t.Errorf("the formatted tab breaks the query over lines:\n%s", s)
+	}
+	press(m, "v")
+	if s := screen(m); !strings.Contains(s, "UPDATE products SET stock =") {
+		t.Errorf("v shows the query as logged:\n%s", s)
+	}
+}
+
+func TestHighlightSQL(t *testing.T) {
+	got := highlightSQL("SELECT price FROM products WHERE price > 199.00 AND sku = ?")
+	if !strings.Contains(got, style.AccentBold.Render("SELECT")) || !strings.Contains(got, style.PinkText.Render("?")) {
+		t.Errorf("keywords and placeholders have their colours: %q", got)
+	}
+	if !strings.Contains(got, style.Yellow.Render("199")+style.Yellow.Render(".")+style.Yellow.Render("00")) {
+		t.Errorf("a decimal is one colour, though the lexer splits it: %q", got)
+	}
+	if ansi.Strip(got) != "SELECT price FROM products WHERE price > 199.00 AND sku = ?" {
+		t.Errorf("colouring keeps the text: %q", ansi.Strip(got))
 	}
 }
 

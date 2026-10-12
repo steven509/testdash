@@ -286,7 +286,8 @@ var helpSections = []struct {
 	{"Logs", [][2]string{{"/", "filter (regex)"}, {"e", "errors only"}, {"f", "follow"}, {"w", "wrap"},
 		{"v", "simplified or full"}, {"t", "times"}, {"esc", "clear, back"}}},
 	{"Services", [][2]string{{"[ ]", "tabs"}, {"↑ ↓", "rows; details beside"}, {"u", "WireMock: unmatched only"},
-		{"enter", "Kafka: a topic's messages"}, {"h", "Kafka: a message's headers"}, {"n", "SQL: session chatter"}}},
+		{"enter", "Kafka: a topic's messages"}, {"h", "Kafka: a message's headers"}, {"n", "SQL: session chatter"},
+		{"v", "SQL: formatted or raw"}}},
 }
 
 func (h *help) key(m *Model, k tea.KeyPressMsg) tea.Cmd {

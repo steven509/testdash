@@ -25,6 +25,7 @@ import (
 	"github.com/steven509/testdash/internal/kafka"
 	"github.com/steven509/testdash/internal/logformat"
 	"github.com/steven509/testdash/internal/runner"
+	"github.com/steven509/testdash/internal/sqlformat"
 	"github.com/steven509/testdash/internal/style"
 	"github.com/steven509/testdash/internal/wiremock"
 )
@@ -95,6 +96,36 @@ func tablePane(m *Model, r rect, t *table, detail *textbox) []string {
 		return nil
 	}, wheel: detail.scroll})
 	return hjoin(left, right)
+}
+
+// tabbedDetailPane draws a table with the details of its cursor row on the right, under tabs that a click
+// chooses between.
+func tabbedDetailPane(m *Model, r rect, t *table, detail *textbox, labels []string, active int,
+	choose func(tab int)) []string {
+	widths := splitWidth(r.w, 3, 2)
+	left := t.view(widths[0], r.h, m.focus == t)
+	m.addZone(tableZone(m, rect{r.x, r.y, widths[0], r.h}, t))
+	inner := detailWidth(r.w)
+	tabLine, spans := tabs(labels, active, inner)
+	for i, span := range spans {
+		tab := i
+		m.addZone(zone{r: rect{r.x + widths[0] + 2 + span[0], r.y, span[1] - span[0], 1}, click: func(int, int) tea.Cmd {
+			choose(tab)
+			return nil
+		}})
+	}
+	body := append([]string{tabLine, ""}, detail.view(inner, max(0, r.h-2))...)
+	right := leftBorder(padded(body, widths[1]-1, r.h, 1, 1))
+	m.addZone(zone{r: rect{r.x + widths[0], r.y + 2, widths[1], max(0, r.h-2)}, click: func(int, int) tea.Cmd {
+		m.setFocus(detail)
+		return nil
+	}, wheel: detail.scroll})
+	return hjoin(left, right)
+}
+
+// detailWidth is the width of the details beside a table in a pane so wide.
+func detailWidth(paneWidth int) int {
+	return splitWidth(paneWidth, 3, 2)[1] - 3
 }
 
 func tableZone(m *Model, r rect, t *table) zone {
@@ -871,10 +902,7 @@ func (v *kafkaView) latest() {
 
 // messagesPane is the messages, and beside them the selected one's value or headers.
 func (v *kafkaView) messagesPane(m *Model, r rect) []string {
-	widths := splitWidth(r.w, 3, 2)
-	left := v.table.view(widths[0], r.h, m.focus == v.table)
-	m.addZone(tableZone(m, rect{r.x, r.y, widths[0], r.h}, v.table))
-	inner := widths[1] - 3
+	inner := detailWidth(r.w)
 	key := v.table.cursorKey()
 	message, ok := v.byKey[key]
 	headers := "Headers"
@@ -885,14 +913,6 @@ func (v *kafkaView) messagesPane(m *Model, r rect) []string {
 	if v.showHeaders {
 		active = 1
 	}
-	tabLine, spans := tabs([]string{"Value", headers}, active, inner)
-	for i, span := range spans {
-		show := i == 1
-		m.addZone(zone{r: rect{r.x + widths[0] + 2 + span[0], r.y, span[1] - span[0], 1}, click: func(int, int) tea.Cmd {
-			v.showHeaders = show
-			return nil
-		}})
-	}
 	switch {
 	case !ok:
 		v.detail.set("", "")
@@ -901,13 +921,8 @@ func (v *kafkaView) messagesPane(m *Model, r rect) []string {
 	default:
 		v.detail.set(key+"/value", messageHeading(message)+"\n"+messageValue(message))
 	}
-	body := append([]string{tabLine, ""}, v.detail.view(inner, max(0, r.h-2))...)
-	right := leftBorder(padded(body, widths[1]-1, r.h, 1, 1))
-	m.addZone(zone{r: rect{r.x + widths[0], r.y + 2, widths[1], max(0, r.h-2)}, click: func(int, int) tea.Cmd {
-		m.setFocus(v.detail)
-		return nil
-	}, wheel: v.detail.scroll})
-	return hjoin(left, right)
+	return tabbedDetailPane(m, r, v.table, v.detail, []string{"Value", headers}, active,
+		func(tab int) { v.showHeaders = tab == 1 })
 }
 
 func messageKey(message kafka.Message) string {
@@ -1214,6 +1229,7 @@ type dbView struct {
 	detail    *textbox
 	log       *logView
 	mongo     bool
+	showRaw   bool // a SQL query as the database logged it, rather than laid out and coloured
 }
 
 func newDBView(m *Model, entry *svcEntry, info func() string) *dbView {
@@ -1226,6 +1242,9 @@ func newDBView(m *Model, entry *svcEntry, info func() string) *dbView {
 		v.table = newTable("Time", "Conn", "Kind", "Query")
 	}
 	v.tabbedView = tabbedView{tabIDs: []string{"queries", "log"}, tabLabels: []string{"Queries", "Log"}}
+	if !v.mongo {
+		sqlformat.Prepare()
+	}
 	if v.client != nil {
 		ctx, send := m.ctx, m.send
 		go v.client.Follow(ctx, func(batch []databases.Query) { send(queriesMsg{view: v, batch: batch}) })
@@ -1347,12 +1366,21 @@ func (v *dbView) render(m *Model, r rect) []string {
 		return append(out, v.log.render(m, pane)...)
 	}
 	key := v.table.cursorKey()
-	if q, ok := v.byKey[key]; ok {
-		v.detail.set(key, describeQuery(q))
-	} else {
+	q, ok := v.byKey[key]
+	switch {
+	case !ok:
 		v.detail.set("", "")
+	case v.mongo:
+		v.detail.set(key, describeQuery(q, ""))
+	default:
+		v.detail.set(fmt.Sprintf("%s/%t", key, v.showRaw), describeSQL(q, v.entry.svc.Kind, v.showRaw))
 	}
-	return append(out, tablePane(m, pane, v.table, v.detail)...)
+	if v.mongo {
+		return append(out, tablePane(m, pane, v.table, v.detail)...)
+	}
+	active := map[bool]int{false: 0, true: 1}[v.showRaw]
+	return append(out, tabbedDetailPane(m, pane, v.table, v.detail, []string{"Formatted", "Raw"}, active,
+		func(tab int) { v.showRaw = tab == 1 })...)
 }
 
 func (v *dbView) levels(m *Model, focus any) []level {
@@ -1365,6 +1393,10 @@ func (v *dbView) levels(m *Model, focus any) []level {
 		}).when(func() bool { return !v.mongo }),
 		bind("esc", "All queries", func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
+		bind("v", map[bool]string{false: "Raw", true: "Formatted"}[v.showRaw], func() tea.Cmd {
+			v.showRaw = !v.showRaw
+			return nil
+		}).when(func() bool { return !v.mongo && v.activeID() == "queries" }),
 	)}
 	if v.activeID() == "log" {
 		return append(v.log.levels(m, focus), own)
@@ -1404,15 +1436,14 @@ func (v *dbView) queriesBetween(w *window) []databases.Query {
 	return found
 }
 
-func describeQuery(q databases.Query) string {
+// describeQuery is a query's details: a SQL query laid out and coloured in its database's dialect, or a MongoDB
+// command with what it did.
+func describeQuery(q databases.Query, dialect string) string {
+	if q.Target == "" {
+		return describeSQL(q, dialect, false)
+	}
 	var b strings.Builder
 	stamp := clockMillis(q.At)
-	if q.Target == "" {
-		b.WriteString(style.Bold.Render(cleanText(q.Kind)))
-		b.WriteString(style.Dim.Render(fmt.Sprintf("  connection %s  %s", q.Connection, stamp)) + "\n\n")
-		b.WriteString(styleLines(cleanBlock(q.Text), style.Cyan))
-		return b.String()
-	}
 	b.WriteString(style.Bold.Render(cleanText(q.Kind + " " + q.Target)))
 	timing := "  " + stamp
 	if q.Millis != "" {

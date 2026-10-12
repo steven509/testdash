@@ -275,7 +275,8 @@ func (m *Model) timeline(w *window) []timelineEvent {
 					summary = style.Bold.Render(q.Kind+" "+q.Target) + "  " + style.Dim.Render(preview(&text, 80))
 				}
 				events = append(events, timelineEvent{at: q.At, source: source, color: style.Orange, summary: summary,
-					service: entry, reveal: func() { v.selectQuery(q) }, detail: func() string { return describeQuery(q) }})
+					service: entry, reveal: func() { v.selectQuery(q) },
+					detail: func() string { return describeQuery(q, entry.svc.Kind) }})
 			}
 		default:
 			if !entry.svc.IsApp() {

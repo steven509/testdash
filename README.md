@@ -52,7 +52,8 @@ queries) and a dot for whether it runs.
   warning or error the application logged while it ran, in time order. Select one to see all of it below;
   `enter` opens it in its service's view, narrowed to the test's time.
 - *Gradle or a service*: its log, or WireMock's requests (with the closest stub for each unmatched one), stubs
-  and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's queries and log.
+  and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's
+  queries and log. A SQL query shows laid out over lines and coloured, or as the database logged it (`v`).
 
 <p align="center">
   <img src="docs/images/failure.png" width="880"
@@ -192,7 +193,9 @@ are not logged), as root, with the password from the container's environment. Mo
 2 on every database as it appears, with a 64MB `system.profile`, and one `mongosh` prints new entries. Both are
 switched on over a connection to the server that serves the tests, not the temporary one the images run their
 init scripts on, so queries made before that (migrations at startup, say) are missed. MongoDB needs `mongosh`,
-which its images have from 6.0.
+which its images have from 6.0. SQL is laid out by [sql-formatter](https://github.com/sql-formatter-org/sql-formatter)
+in the database's dialect, run in [goja](https://github.com/dop251/goja), and coloured by
+[chroma](https://github.com/alecthomas/chroma).
 
 **Kafka** is read with its own tools in its container. One `kafka-console-consumer` follows every topic with a
 formatter that prints each message as JSON with its topic (`internal/kafka/formatter/TestdashFormatter.java`,
