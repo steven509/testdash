@@ -218,3 +218,7 @@ and listener), `progress`, `runner`, `services` (the Docker watcher), `logformat
 `databases`, `settings`, `style` (the theme), and `ui`, the Bubble Tea model. Everything the screen shows lives
 on the model and changes only in `Update`; the work that waits runs in goroutines that send their results in as
 messages.
+
+## License
+
+[MIT](LICENSE)
