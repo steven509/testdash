@@ -446,13 +446,14 @@ func (m *Model) classSummary(id string, width int) string {
 	pkg, _ := splitClass(entry.ClassName)
 	b.WriteString(style.Dim.Render(pkg) + "\n")
 	b.WriteString(style.Gradient(ansi.Strip(m.tree.name(m, id)), true, style.Text, style.Primary) + "\n\n")
-	leaves := m.leavesUnder(id)
 	counts := map[string]int{}
-	for _, leaf := range leaves {
-		counts[m.status(leaf)]++
+	counted := m.countedUnder(id)
+	for _, test := range counted {
+		counts[m.status(test)]++
 	}
-	b.WriteString(countLine(counts, len(leaves)) + "\n")
-	b.WriteString(stackedBar(counts, len(leaves), width) + "\n\n")
+	b.WriteString(countLine(counts, len(counted)) + "\n")
+	b.WriteString(stackedBar(counts, len(counted), width) + "\n\n")
+	leaves := m.leavesUnder(id)
 	var longest int64
 	for _, leaf := range leaves {
 		if took, ok := m.state(leaf).Took(nowMillis()); ok && took > longest {

@@ -363,7 +363,15 @@ func (m *Model) status(id string) string {
 	if !m.inRun[id] && !(entry != nil && m.inRun[entry.Parent]) {
 		return "absent"
 	}
-	return m.progress.State(id).Status
+	status := m.progress.State(id).Status
+	if status == "passed" { // a parameterised test passes as a container even when one of its invocations fails
+		for _, invocation := range m.kids[id] {
+			if s := m.progress.State(invocation.ID).Status; s == "failed" || s == "aborted" {
+				return "failed"
+			}
+		}
+	}
+	return status
 }
 
 func (m *Model) state(id string) progress.State {
@@ -383,6 +391,30 @@ func (m *Model) leavesUnder(id string) []string {
 		}
 	}
 	return leaves
+}
+
+// countedUnder is what a row's counts count: its tests, with a parameterised test's invocations in its place
+// once a run has registered them, as the run's own counts do. "" is every test.
+func (m *Model) countedUnder(id string) []string {
+	var leaves []string
+	if id == "" {
+		for leaf := range m.selectable {
+			leaves = append(leaves, leaf)
+		}
+	} else {
+		leaves = m.leavesUnder(id)
+	}
+	var tests []string
+	for _, leaf := range leaves {
+		if invocations := m.kids[leaf]; len(invocations) > 0 {
+			for _, invocation := range invocations {
+				tests = append(tests, invocation.ID)
+			}
+			continue
+		}
+		tests = append(tests, leaf)
+	}
+	return tests
 }
 
 // selectionFor is what runs one tree node again: a test, a class's tests, or for a parameterised test's

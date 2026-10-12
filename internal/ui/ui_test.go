@@ -158,6 +158,37 @@ func TestTreeFiltersSelectsAndRuns(t *testing.T) {
 	clickEverywhere(t, m)
 }
 
+func TestParameterisedTestFailsWithAnInvocation(t *testing.T) {
+	m := testModel(t)
+	m.runStarted, m.runFinished = time.Now(), time.Now()
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{"t1": true, "t2": true, "t3": true}
+	events := `{"event":"registered","at":1,"entry":{"id":"t2-1","parent":"t2","kind":"test","className":"com.a.FooTest","methodName":"each","name":"[1] a"}}
+{"event":"registered","at":1,"entry":{"id":"t2-2","parent":"t2","kind":"test","className":"com.a.FooTest","methodName":"each","name":"[2] b"}}
+{"event":"finished","at":2,"id":"t1","status":"SUCCESSFUL"}
+{"event":"finished","at":2,"id":"t2-1","status":"SUCCESSFUL"}
+{"event":"finished","at":3,"id":"t2-2","status":"FAILED","message":"boom"}
+{"event":"finished","at":4,"id":"t2","status":"SUCCESSFUL"}
+{"event":"finished","at":4,"id":"t3","status":"SUCCESSFUL"}
+`
+	if err := os.WriteFile(filepath.Join(m.opts.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tickMsg{})
+	if got := m.status("t2"); got != "failed" {
+		t.Errorf("a parameterised test with a failed invocation is %s", got)
+	}
+	if got := ansi.Strip(m.tree.right(m, "c1")); !strings.Contains(got, "1  4/4") {
+		t.Errorf("the class counts each invocation and the failure: %q", got)
+	}
+	summary := ansi.Strip(m.classSummary("c1", 80))
+	for _, want := range []string{"3 passed", "1 failed", "4 tests"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("the class summary lacks %q:\n%s", want, summary)
+		}
+	}
+}
+
 func TestTestDetailsShowWhatHappenedDuringIt(t *testing.T) {
 	m := testModel(t)
 	m.opts.Command = []string{"true"}

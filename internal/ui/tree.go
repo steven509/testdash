@@ -296,14 +296,7 @@ func (t *testTree) right(m *Model, id string) string {
 		}
 		return ""
 	}
-	var leaves []string
-	if id == "" {
-		for leaf := range m.selectable {
-			leaves = append(leaves, leaf)
-		}
-	} else {
-		leaves = m.leavesUnder(id)
-	}
+	leaves := m.countedUnder(id)
 	passed, failed, inRun := 0, 0, 0
 	for _, leaf := range leaves {
 		switch m.status(leaf) {
