@@ -1,0 +1,17 @@
+{
+  "name": "Authorise a card payment",
+  "priority": 5,
+  "request": { "method": "POST", "urlPath": "/payments" },
+  "response": {
+    "status": 201,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": {
+      "id": "pay_{{randomValue length=14 type='ALPHANUMERIC' lowercase=true}}",
+      "status": "AUTHORISED",
+      "amount": "{{jsonPath request.body '$.amount'}}",
+      "currency": "GBP"
+    },
+    "transformers": ["response-template"],
+    "delayDistribution": { "type": "lognormal", "median": 380, "sigma": 0.3 }
+  }
+}

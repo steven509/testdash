@@ -1,0 +1,10 @@
+{
+  "name": "Quote shipping to US",
+  "request": { "method": "GET", "urlPath": "/shipping/quotes", "queryParameters": { "country": { "equalTo": "US" } } },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "carrier": "UPS", "service": "Worldwide Saver", "price": 24.00, "days": 5 },
+    "delayDistribution": { "type": "uniform", "lower": 90, "upper": 260 }
+  }
+}

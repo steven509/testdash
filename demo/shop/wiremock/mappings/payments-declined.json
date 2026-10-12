@@ -1,0 +1,15 @@
+{
+  "name": "Decline a card without funds",
+  "priority": 1,
+  "request": {
+    "method": "POST",
+    "urlPath": "/payments",
+    "bodyPatterns": [{ "matchesJsonPath": "$[?(@.source == 'tok_insufficient_funds')]" }]
+  },
+  "response": {
+    "status": 402,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "status": "DECLINED", "declineCode": "insufficient_funds" },
+    "fixedDelayMilliseconds": 290
+  }
+}

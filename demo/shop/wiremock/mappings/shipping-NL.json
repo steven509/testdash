@@ -1,0 +1,10 @@
+{
+  "name": "Quote shipping to NL",
+  "request": { "method": "GET", "urlPath": "/shipping/quotes", "queryParameters": { "country": { "equalTo": "NL" } } },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "carrier": "PostNL", "service": "Pakket", "price": 7.95, "days": 2 },
+    "delayDistribution": { "type": "uniform", "lower": 90, "upper": 260 }
+  }
+}

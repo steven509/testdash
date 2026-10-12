@@ -1,0 +1,10 @@
+{
+  "name": "Quote shipping to JP",
+  "request": { "method": "GET", "urlPath": "/shipping/quotes", "queryParameters": { "country": { "equalTo": "JP" } } },
+  "response": {
+    "status": 503,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "error": "carrier_unavailable", "message": "Japan Post is not accepting quotes" },
+    "fixedDelayMilliseconds": 900
+  }
+}

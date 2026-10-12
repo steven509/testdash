@@ -1,0 +1,40 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+  body {
+    background:
+      radial-gradient(1100px 650px at 12% -8%, rgba(139,124,255,.38), transparent 62%),
+      radial-gradient(1000px 640px at 105% 110%, rgba(244,114,182,.24), transparent 60%),
+      radial-gradient(700px 500px at 85% -10%, rgba(94,234,212,.10), transparent 60%),
+      #0B0A14;
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif;
+  }
+  .caption { position: absolute; left: 138px; right: 138px; top: 38px; height: 96px; display: flex; align-items: center; gap: 22px; }
+  .step {
+    flex: none; width: 64px; height: 64px; border-radius: 16px; display: grid; place-items: center;
+    font: 700 28px "Hack Nerd Font", monospace; color: #fff;
+    background: linear-gradient(135deg, #8B7CFF, #F472B6); box-shadow: 0 8px 26px rgba(139,124,255,.45);
+  }
+  .text { display: flex; flex-direction: column; gap: 6px; }
+  .title { font-weight: 700; font-size: 42px; letter-spacing: -.5px; color: #F4F4FB; }
+  .sub { font-size: 22px; color: #A6A6C4; }
+  .window {
+    position: absolute; left: 138px; top: 162px; width: 1644px; height: 878px; border-radius: 14px; overflow: hidden;
+    background: #12121C;
+    box-shadow: 0 0 0 1px rgba(255,255,255,.10) inset, 0 30px 80px rgba(0,0,0,.55), 0 8px 24px rgba(0,0,0,.35);
+  }
+  .bar {
+    height: 40px; position: relative; display: flex; align-items: center; padding-left: 16px; gap: 10px;
+    background: linear-gradient(#1F1F31, #1A1A29); border-bottom: 1px solid #26263A; box-sizing: border-box;
+  }
+  .dot { width: 14px; height: 14px; border-radius: 50%; }
+  .r { background: #FF5F57; } .y { background: #FEBC2E; } .g { background: #28C840; }
+  .wtitle { position: absolute; inset: 0; display: grid; place-items: center; font: 500 15px -apple-system, sans-serif; color: #8E8EAA; }
+</style></head><body>
+<div class="caption"><div class="step" id="step"></div><div class="text"><div class="title" id="title"></div><div class="sub" id="sub"></div></div></div>
+<div class="window"><div class="bar"><div class="dot r"></div><div class="dot y"></div><div class="dot g"></div><div class="wtitle">shop — testdash</div></div></div>
+<script>
+  const q = new URLSearchParams(location.search);
+  for (const id of ['step', 'title', 'sub']) document.getElementById(id).textContent = q.get(id) || '';
+</script>
+</body></html>

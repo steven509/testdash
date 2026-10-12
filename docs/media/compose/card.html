@@ -1,0 +1,64 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><style>
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+  body {
+    display: grid; place-items: center; text-align: center;
+    background:
+      radial-gradient(1100px 650px at 12% -8%, rgba(139,124,255,.38), transparent 62%),
+      radial-gradient(1000px 640px at 105% 110%, rgba(244,114,182,.24), transparent 60%),
+      radial-gradient(700px 500px at 85% -10%, rgba(94,234,212,.10), transparent 60%),
+      #0B0A14;
+    font-family: -apple-system, "SF Pro Display", "Helvetica Neue", sans-serif; color: #F4F4FB;
+  }
+  .logo {
+    font: 700 168px "Hack Nerd Font", monospace; letter-spacing: -4px; line-height: 1;
+    background: linear-gradient(100deg, #A99BFF 10%, #8B7CFF 40%, #F472B6 90%); -webkit-background-clip: text; color: transparent;
+    filter: drop-shadow(0 12px 40px rgba(139,124,255,.35));
+  }
+  .icon { font: 150px "Hack Nerd Font"; color: #8B7CFF; margin-right: 26px; vertical-align: -6px; -webkit-text-fill-color: #8B7CFF; }
+  .tag { margin-top: 42px; font-size: 46px; font-weight: 600; letter-spacing: -.4px; }
+  .tag em { font-style: normal; background: linear-gradient(90deg, #8B7CFF, #F472B6); -webkit-background-clip: text; color: transparent; }
+  .chips { margin-top: 44px; display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .chip { font: 500 24px -apple-system, sans-serif; color: #C9C9E3; padding: 10px 20px; border-radius: 999px; background: rgba(255,255,255,.06); box-shadow: 0 0 0 1px rgba(255,255,255,.10) inset; }
+  .code {
+    margin-top: 46px; display: inline-block; padding: 22px 36px; border-radius: 16px; background: #12121C;
+    font: 36px "Hack Nerd Font", monospace; color: #E4E4F0; box-shadow: 0 0 0 1px rgba(255,255,255,.12) inset, 0 20px 60px rgba(0,0,0,.45);
+  }
+  .code .p { color: #F472B6; margin-right: 18px; } .code .f { color: #8B7CFF; }
+  .then { margin-top: 30px; font-size: 30px; color: #A6A6C4; }
+  .then code { font: 30px "Hack Nerd Font", monospace; color: #E4E4F0; padding: 2px 12px; border-radius: 8px; background: rgba(255,255,255,.07); }
+  .foot { margin-top: 64px; font-size: 22px; color: #6B6B88; }
+  .hidden { display: none; }
+  .play {
+    margin: 52px auto 0; width: 132px; height: 132px; border-radius: 50%; display: grid; place-items: center;
+    background: linear-gradient(135deg, #8B7CFF, #F472B6); box-shadow: 0 16px 50px rgba(139,124,255,.5);
+  }
+  .play::after { content: ""; margin-left: 12px; border-style: solid; border-width: 30px 0 30px 50px; border-color: transparent transparent transparent #fff; }
+  .watch { margin-top: 22px; font-size: 28px; color: #C9C9E3; }
+</style></head><body>
+<div>
+  <div class="logo"><span class="icon">&#xea79;</span>testdash</div>
+  <div id="intro">
+    <div class="tag">Run your Gradle tests. <em>See everything they touch.</em></div>
+    <div id="poster" class="hidden"><div class="play"></div><div class="watch" id="watch">Watch the trailer</div></div>
+    <div class="chips" id="chips"><span class="chip">JUnit 5</span><span class="chip">WireMock</span><span class="chip">Kafka</span><span class="chip">MariaDB</span><span class="chip">MongoDB</span><span class="chip">your app's logs</span></div>
+  </div>
+  <div id="outro" class="hidden">
+    <div class="code"><span class="p">$</span><span class="f">go</span> build -o ~/.local/bin/testdash .</div>
+    <div class="then">then run <code>testdash</code> in any Gradle repo</div>
+    <div class="foot">One Go binary · Docker for the services · built with Bubble Tea and Lip Gloss</div>
+  </div>
+</div>
+<script>
+  const length = new URLSearchParams(location.search).get('length');
+  if (length) document.getElementById('watch').textContent += ' · ' + length;
+  if (new URLSearchParams(location.search).get('poster')) {
+    document.getElementById('poster').classList.remove('hidden');
+    document.getElementById('chips').classList.add('hidden');
+  }
+  if (new URLSearchParams(location.search).get('end')) {
+    document.getElementById('intro').classList.add('hidden');
+    document.getElementById('outro').classList.remove('hidden');
+  }
+</script>
+</body></html>

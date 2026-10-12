@@ -1,0 +1,15 @@
+{
+  "name": "Refund a payment",
+  "request": {
+    "method": "POST",
+    "urlPathPattern": "/payments/pay_[a-z0-9]+/refund",
+    "headers": { "Content-Type": { "equalTo": "application/json" } },
+    "bodyPatterns": [{ "matchesJsonPath": "$.amount" }]
+  },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "status": "REFUNDED" },
+    "fixedDelayMilliseconds": 240
+  }
+}

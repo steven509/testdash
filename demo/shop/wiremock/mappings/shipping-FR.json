@@ -1,0 +1,10 @@
+{
+  "name": "Quote shipping to FR",
+  "request": { "method": "GET", "urlPath": "/shipping/quotes", "queryParameters": { "country": { "equalTo": "FR" } } },
+  "response": {
+    "status": 200,
+    "headers": { "Content-Type": "application/json" },
+    "jsonBody": { "carrier": "Colissimo", "service": "Expert", "price": 8.90, "days": 3 },
+    "delayDistribution": { "type": "uniform", "lower": 90, "upper": 260 }
+  }
+}

@@ -1,0 +1,22 @@
+plugins { id 'java' }
+
+dependencies {
+    implementation fileTree(dir: 'libs/main', include: '*.jar')
+    testImplementation fileTree(dir: 'libs/test', include: '*.jar')
+}
+
+tasks.register('assembleApp', Sync) {
+    from(tasks.named('jar')) { rename { 'shop.jar' } }
+    from(configurations.runtimeClasspath) { into 'lib' }
+    into layout.buildDirectory.dir('app')
+}
+
+tasks.register('composeUp', Exec) {
+    dependsOn 'assembleApp'
+    commandLine 'docker', 'compose', 'up', '--detach', '--force-recreate', '--renew-anon-volumes', '--wait'
+}
+
+test {
+    useJUnitPlatform()
+    dependsOn 'composeUp'
+}
