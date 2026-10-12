@@ -455,8 +455,23 @@ func (m *Model) windowFor(id string) *window {
 	if entry := m.entries[id]; entry != nil {
 		name = entry.Name
 	}
-	return &window{start: time.UnixMilli(state.StartedAt).Add(-correlationSlack),
+	w := &window{start: time.UnixMilli(state.StartedAt).Add(-correlationSlack),
 		end: time.UnixMilli(end).Add(correlationSlack), label: "during " + cleanText(name)}
+	for _, other := range m.runLeaves() { // the slack stops where the tests before and after it ran
+		if other.ID == id {
+			continue
+		}
+		neighbour := m.state(other.ID)
+		if finished := time.UnixMilli(neighbour.FinishedAt); neighbour.FinishedAt != 0 &&
+			neighbour.FinishedAt <= state.StartedAt && finished.After(w.start) {
+			w.start = finished
+		}
+		if started := time.UnixMilli(neighbour.StartedAt); neighbour.StartedAt != 0 && neighbour.StartedAt >= end &&
+			started.Before(w.end) {
+			w.end = started
+		}
+	}
+	return w
 }
 
 func (m *Model) descendants(id string) []string {

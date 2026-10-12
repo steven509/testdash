@@ -189,6 +189,37 @@ func TestParameterisedTestFailsWithAnInvocation(t *testing.T) {
 	}
 }
 
+func TestWindowStopsAtTheNeighbouringTests(t *testing.T) {
+	m := testModel(t)
+	m.runStarted = time.Now()
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{"t1": true, "t3": true, "t4": true}
+	at := time.Now().UnixMilli() - 5000
+	events := fmt.Sprintf(`{"event":"plan","at":1,"entries":[`+
+		`{"id":"t1","parent":"c1","kind":"test","className":"com.a.FooTest","methodName":"one","name":"one"},`+
+		`{"id":"t3","parent":"n1","kind":"test","className":"com.a.FooTest$Inner","methodName":"three","name":"three"},`+
+		`{"id":"t4","parent":"c2","kind":"test","className":"com.a.BarTest","methodName":"sign_up","name":"sign up"}]}
+{"event":"started","at":%[1]d,"id":"t1"}
+{"event":"finished","at":%[2]d,"id":"t1","status":"SUCCESSFUL"}
+{"event":"started","at":%[3]d,"id":"t3"}
+{"event":"finished","at":%[4]d,"id":"t3","status":"SUCCESSFUL"}
+{"event":"started","at":%[5]d,"id":"t4"}
+{"event":"finished","at":%[6]d,"id":"t4","status":"SUCCESSFUL"}
+`, at, at+400, at+450, at+900, at+3000, at+3200)
+	if err := os.WriteFile(filepath.Join(m.opts.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tickMsg{})
+	w := m.windowFor("t3")
+	if !w.start.Equal(time.UnixMilli(at+400)) || !w.end.Equal(time.UnixMilli(at+900).Add(correlationSlack)) {
+		t.Errorf("t3's window starts where t1 finished and keeps its slack before the idle gap: %v to %v",
+			w.start.Sub(time.UnixMilli(at)), w.end.Sub(time.UnixMilli(at)))
+	}
+	if w := m.windowFor("t1"); !w.end.Equal(time.UnixMilli(at+450)) || !w.start.Equal(time.UnixMilli(at).Add(-correlationSlack)) {
+		t.Errorf("t1's window ends where t3 started: %v to %v", w.start.Sub(time.UnixMilli(at)), w.end.Sub(time.UnixMilli(at)))
+	}
+}
+
 func TestTestDetailsShowWhatHappenedDuringIt(t *testing.T) {
 	m := testModel(t)
 	m.opts.Command = []string{"true"}
