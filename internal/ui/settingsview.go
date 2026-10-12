@@ -1,0 +1,363 @@
+package ui
+
+import (
+	"os"
+	"strings"
+
+	tea "charm.land/bubbletea/v2"
+
+	"testdash/internal/settings"
+	"testdash/internal/style"
+)
+
+// settingItem is one line of the settings: what it is, what it says now, and how it changes.
+type settingItem struct {
+	label   string
+	visible func(s settings.Settings) bool // shown only when it applies; nil is always
+	help    string
+	toggle  func(s *settings.Settings) *bool // for an on/off setting
+	value   func(s settings.Settings) string // for a choice
+	change  func(s *settings.Settings, step int)
+}
+
+func choice(options []string, current string, step int) string {
+	for i, option := range options {
+		if strings.EqualFold(option, current) {
+			return options[(i+step+len(options))%len(options)]
+		}
+	}
+	return options[0]
+}
+
+func themeNames() []string {
+	var names []string
+	for _, t := range style.Themes {
+		names = append(names, t.Name)
+	}
+	return names
+}
+
+var settingItems = []settingItem{
+	{label: "Icons", help: "Nerd Font glyphs for the carets, statuses and services. Your terminal needs a Nerd Font " +
+		"(nerdfonts.com); Unicode works with any font.",
+		value: func(s settings.Settings) string {
+			if s.NerdFont {
+				return "Nerd Font"
+			}
+			return "Unicode"
+		},
+		change: func(s *settings.Settings, _ int) { s.NerdFont = !s.NerdFont }},
+	{label: "Icon spacing", help: "Spaces after each icon. Nerd Fonts draw some icons wider than a letter, into the " +
+		"space after them; two spaces keep them clear of the text. The Mono variant of a Nerd Font keeps every icon " +
+		"to one cell instead.",
+		visible: func(s settings.Settings) bool { return s.NerdFont },
+		value: func(s settings.Settings) string {
+			if s.IconSpacing >= 2 {
+				return "2 spaces"
+			}
+			return "1 space"
+		},
+		change: func(s *settings.Settings, _ int) {
+			if s.IconSpacing >= 2 {
+				s.IconSpacing = 1
+			} else {
+				s.IconSpacing = 2
+			}
+		}},
+	{label: "Accent", help: "The colour of focus and selection, and of the gradients frames and bars blend through.",
+		value:  func(s settings.Settings) string { return choice(themeNames(), s.Theme, 0) },
+		change: func(s *settings.Settings, step int) { s.Theme = choice(themeNames(), s.Theme, step) }},
+	{label: "Mouse", help: "Click and scroll in testdash. Off leaves the mouse to your terminal, to select and copy text.",
+		toggle: func(s *settings.Settings) *bool { return &s.Mouse }},
+	{label: "Log lines", help: "How logs start: simplified to each line's level and message, or as they were logged. " +
+		"v switches in a log.",
+		value: func(s settings.Settings) string {
+			if s.FullLogLines {
+				return "As logged"
+			}
+			return "Simplified"
+		},
+		change: func(s *settings.Settings, _ int) { s.FullLogLines = !s.FullLogLines }},
+	{label: "Times in logs", help: "Logs start with the time Docker received each line. t switches in a log.",
+		toggle: func(s *settings.Settings) *bool { return &s.LogTime }},
+	{label: "Wrap log lines", help: "Logs start wrapping long lines, rather than scrolling sideways. w switches in a log.",
+		toggle: func(s *settings.Settings) *bool { return &s.WrapLogs }},
+	{label: "Test output", help: "Where tests' own output goes: to the containers' logs only, or into Gradle's output " +
+		"too. Applies from the next run.",
+		value: func(s settings.Settings) string {
+			if s.ShowTestOutput {
+				return "Gradle's output too"
+			}
+			return "Service logs"
+		},
+		change: func(s *settings.Settings, _ int) { s.ShowTestOutput = !s.ShowTestOutput }},
+	{label: "Containers", help: "Follow the containers the run starts, or every container on the machine. Applies " +
+		"from the next start.",
+		value: func(s settings.Settings) string {
+			if s.AllContainers {
+				return "Every container"
+			}
+			return "The run's"
+		},
+		change: func(s *settings.Settings, _ int) { s.AllContainers = !s.AllContainers }},
+}
+
+// settingsForm shows and changes the settings, saving each change as it is made.
+type settingsForm struct {
+	values   settings.Settings
+	cursor   int
+	status   string
+	failed   bool
+	onChange func(settings.Settings)
+	rowsAt   int // the first row's line in the last render
+}
+
+func newSettingsForm(values settings.Settings, onChange func(settings.Settings)) *settingsForm {
+	f := &settingsForm{values: values, onChange: onChange}
+	f.status = "Saved in " + tildePath(settings.Path())
+	return f
+}
+
+func tildePath(path string) string {
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(path, home) {
+		return "~" + strings.TrimPrefix(path, home)
+	}
+	return path
+}
+
+// items are the settings that apply to the others' values: icon spacing only with Nerd Font icons.
+func (f *settingsForm) items() []settingItem {
+	var shown []settingItem
+	for _, item := range settingItems {
+		if item.visible == nil || item.visible(f.values) {
+			shown = append(shown, item)
+		}
+	}
+	return shown
+}
+
+func (f *settingsForm) change(i, step int) {
+	item := f.items()[i]
+	if item.toggle != nil {
+		value := item.toggle(&f.values)
+		*value = !*value
+	} else {
+		item.change(&f.values, step)
+	}
+	if err := f.values.Save(); err != nil {
+		f.status, f.failed = "Could not save: "+err.Error(), true
+	} else {
+		f.status, f.failed = "Saved in "+tildePath(settings.Path()), false
+	}
+	if f.onChange != nil {
+		f.onChange(f.values)
+	}
+	f.cursor = min(f.cursor, len(f.items())-1)
+}
+
+func (f *settingsForm) key(k tea.KeyPressMsg) {
+	switch k.String() {
+	case "up", "k":
+		f.cursor = max(0, f.cursor-1)
+	case "down", "j", "tab":
+		f.cursor = min(len(f.items())-1, f.cursor+1)
+	case "left", "h":
+		f.change(f.cursor, -1)
+	case "right", "l", "space", "enter":
+		f.change(f.cursor, 1)
+	}
+}
+
+func (f *settingsForm) render(width, height int) []string {
+	formWidth := width
+	showPreview := width >= 78
+	if showPreview {
+		formWidth = width - 32
+	}
+	var rows []string
+	rows = append(rows, style.Muted.Render("Choose with ↑ ↓, change with ← → or space."), "")
+	f.rowsAt = len(rows)
+	for i, item := range f.items() {
+		rows = append(rows, f.row(i, item, formWidth))
+	}
+	rows = append(rows, "")
+	for _, line := range wrapLines(f.items()[f.cursor].help, formWidth-2) {
+		rows = append(rows, " "+style.Muted.Render(line))
+	}
+	for len(rows) < f.rowsAt+len(settingItems)+5 {
+		rows = append(rows, "")
+	}
+	statusStyle := style.Dim
+	mark := ic.check + " "
+	if f.failed {
+		statusStyle, mark = style.Red, ic.failed+" "
+	}
+	rows = append(rows, statusStyle.Render(mark+f.status))
+	if !showPreview {
+		return rows
+	}
+	preview := f.preview(30, max(len(rows), 12))
+	return hjoin(block(rows, formWidth, len(preview)), block(nil, 2, len(preview)), preview)
+}
+
+func (f *settingsForm) row(i int, item settingItem, width int) string {
+	selected := i == f.cursor
+	label := fit(item.label, 18, true)
+	var control string
+	if item.toggle != nil {
+		if *item.toggle(&f.values) {
+			control = style.BoldPill("● on ", style.Base, style.Pass)
+		} else {
+			control = style.Pill("○ off", style.MutedText, style.Raised)
+		}
+	} else {
+		value := item.value(f.values)
+		if selected {
+			control = style.Dim.Render("‹ ") + style.BoldPill(value, style.Base, style.Primary) + style.Dim.Render(" ›")
+		} else {
+			control = "  " + style.Pill(value, style.Text, style.Raised)
+		}
+	}
+	line := " " + label + control
+	if selected {
+		return style.AccentBold.Render("▌") + style.WithBg(fit(style.Bold.Render(label)+control, width-1, false),
+			style.Bg(style.CursorBlur))
+	}
+	return line
+}
+
+// preview is a small panel drawn with the settings as they are now.
+func (f *settingsForm) preview(width, height int) []string {
+	_, mark := icon("passed")
+	lines := []string{
+		style.Gradient(ic.logo+" testdash", true, style.Accent...),
+		"",
+		style.AccentText.Render(ic.partly) + " " + style.Dim.Render(ic.caretOpen+" ") + style.Red.Render(ic.failed) + " " +
+			style.Bold.Render("CalculatorTest"),
+		style.Dim.Render(ic.unpicked) + "   " + mark.Render(ic.passed) + " adds two numbers",
+		style.WithBg(style.AccentBold.Render(ic.picked)+"   "+style.Red.Render(ic.failed)+" "+style.AccentText.Render("subtracts")+"     ",
+			style.BoldBg(style.Text, style.Cursor)),
+		style.Dim.Render(ic.unpicked) + "   " + style.Yellow.Render(ic.skipped) + " divides",
+		"",
+		style.Yellow.Render(ic.app) + " orders-api " + style.Yellow.Render(ic.warning+" 3") + style.Green.Render(" ●"),
+		style.Muted.Render(ic.http) + " wiremock  " + style.Dim.Render("12 req") + style.Green.Render(" ●"),
+		style.Muted.Render(ic.database) + " mariadb   " + style.Dim.Render("40 q") + style.Green.Render(" ●"),
+		"",
+		style.Bar(width-4, 0.7, style.Teal, style.Pass),
+	}
+	if f.values.LogTime {
+		lines = append(lines, style.Dim.Render("12:04:51 ")+style.Green.Render("INFO ")+"started")
+	} else {
+		lines = append(lines, style.Green.Render("INFO  ")+"started")
+	}
+	return frame(lines, rect{0, 0, width, max(height, len(lines)+2)}, "Preview", "", "", true)
+}
+
+// zones makes the rows clickable, area being where the form was drawn.
+func (f *settingsForm) zones(m *Model, area rect) {
+	for i := range f.items() {
+		i := i
+		m.addZone(zone{r: rect{area.x, area.y + f.rowsAt + i, area.w, 1}, click: func(int, int) tea.Cmd {
+			if f.cursor == i {
+				f.change(i, 1)
+			}
+			f.cursor = i
+			return nil
+		}})
+	}
+}
+
+// applySettings puts changed settings into effect at once, where they can be.
+func (m *Model) applySettings(s settings.Settings) {
+	old := m.prefs
+	m.prefs = s
+	style.ApplyTheme(s.Theme)
+	useIcons(s.NerdFont, s.IconSpacing)
+	if old.FullLogLines != s.FullLogLines {
+		m.logSimple = !s.FullLogLines
+	}
+	if old.LogTime != s.LogTime {
+		m.logTime = s.LogTime
+	}
+	if old.WrapLogs != s.WrapLogs {
+		m.logWrap = s.WrapLogs
+		for _, v := range m.logViews() {
+			v.wrap = s.WrapLogs
+		}
+	}
+	if old.ShowTestOutput != s.ShowTestOutput {
+		m.opts.ShowTestOutput = s.ShowTestOutput
+	}
+	m.tree.flatDirty = true
+	m.version++
+}
+
+// SettingsApp is the settings on their own screen, for testdash --settings.
+type SettingsApp struct {
+	form          *settingsForm
+	width, height int
+	zones         []zone
+	model         *Model // for zones; never runs
+}
+
+func NewSettingsApp(values settings.Settings) *SettingsApp {
+	style.ApplyTheme(values.Theme)
+	useIcons(values.NerdFont, values.IconSpacing)
+	app := &SettingsApp{model: &Model{}}
+	app.form = newSettingsForm(values, func(s settings.Settings) {
+		style.ApplyTheme(s.Theme)
+		useIcons(s.NerdFont, s.IconSpacing)
+	})
+	return app
+}
+
+func (a *SettingsApp) Init() tea.Cmd {
+	return nil
+}
+
+func (a *SettingsApp) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		a.width, a.height = msg.Width, msg.Height
+	case tea.KeyPressMsg:
+		switch msg.String() {
+		case "esc", "q", "ctrl+c", "ctrl+q":
+			return a, tea.Quit
+		}
+		a.form.key(msg)
+	case tea.MouseClickMsg:
+		mouse := msg.Mouse()
+		for i := len(a.model.zones) - 1; i >= 0; i-- {
+			if z := a.model.zones[i]; z.click != nil && z.r.contains(mouse.X, mouse.Y) {
+				return a, z.click(mouse.X-z.r.x, mouse.Y-z.r.y)
+			}
+		}
+	}
+	return a, nil
+}
+
+func (a *SettingsApp) View() tea.View {
+	a.model.zones = a.model.zones[:0]
+	width, height := max(40, a.width), max(12, a.height)
+	header := " " + style.Gradient(ic.logo+" testdash", true, style.Accent...) + "  " + style.Muted.Render("settings")
+	cardWidth := min(100, width-4)
+	content := a.form.render(cardWidth-4, height-6)
+	framed := frame(content, rect{0, 0, cardWidth, len(content) + 2}, ic.gear+" Settings", "", "", true)
+	x := (width - cardWidth) / 2
+	screen := block([]string{header, style.LineText.Render(strings.Repeat("─", width))}, width, height-1)
+	overlay(screen, framed, x, 3)
+	a.form.zones(a.model, rect{x + 2, 4, cardWidth - 4, len(content)})
+	footer := " " + keyCap("↑↓") + " " + style.Muted.Render("choose") + "  " + keyCap("←→") + " " +
+		style.Muted.Render("change") + "  " + keyCap("esc") + " " + style.Muted.Render("done")
+	screen = append(screen, fit(footer, width, true))
+	canvas := style.FgBg(style.Text, style.Base)
+	for i, line := range screen {
+		screen[i] = style.WithBg(line, canvas)
+	}
+	v := tea.NewView(strings.Join(screen, "\n"))
+	v.AltScreen = true
+	v.MouseMode = tea.MouseModeCellMotion
+	v.BackgroundColor = style.Base
+	v.WindowTitle = "testdash settings"
+	return v
+}

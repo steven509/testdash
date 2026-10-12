@@ -161,6 +161,16 @@ func (t *table) cursorKey() string {
 	return ""
 }
 
+// selectKey moves the cursor to the row with a key, when there is one.
+func (t *table) selectKey(key string) {
+	for i, row := range t.rows {
+		if row.key == key {
+			t.moveCursor(i)
+			return
+		}
+	}
+}
+
 func (t *table) moveCursor(row int) {
 	t.cursor = max(0, min(row, len(t.rows)-1))
 	t.scrollToCursor = true

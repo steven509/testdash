@@ -13,9 +13,11 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"testdash/internal/catalog"
+	"testdash/internal/kafka"
 	"testdash/internal/logformat"
 	"testdash/internal/progress"
 	"testdash/internal/services"
+	"testdash/internal/settings"
 )
 
 func entry(id, parent, kind, class, method, name string) *catalog.Entry {
@@ -25,9 +27,10 @@ func entry(id, parent, kind, class, method, name string) *catalog.Entry {
 func testModel(t *testing.T) *Model {
 	t.Helper()
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	m := New(ctx, Settings{Workdir: t.TempDir(), RunDir: t.TempDir()})
+	m := New(ctx, Options{Workdir: t.TempDir(), RunDir: t.TempDir()}, settings.Defaults())
 	m.catalog = &catalog.Catalog{Paths: []string{":test", ":it"}, Tasks: map[string]*catalog.TestTask{
 		":test": {Path: ":test", Entries: []*catalog.Entry{
 			entry("c1", "", "class", "com.a.FooTest", "", "FooTest"),
@@ -82,154 +85,338 @@ func press(m *Model, keys ...string) {
 	}
 }
 
+func typeText(m *Model, text string) {
+	for _, c := range text {
+		press(m, string(c))
+	}
+}
+
 func screen(m *Model) string {
 	return ansi.Strip(m.View().Content)
 }
 
-// clickEverywhere clicks the middle of every zone the last frame drew, redrawing after each; the footer's keys,
-// which run and quit, are left alone.
+// clickEverywhere clicks the middle of every zone the last frame drew, redrawing after each; the header's and
+// footer's, which run, quit and open dialogs, are left alone.
 func clickEverywhere(t *testing.T, m *Model) {
 	t.Helper()
+	m.View()
 	zones := append([]zone(nil), m.zones...)
 	for _, z := range zones {
-		if z.r.y == m.height-1 {
+		if z.r.y == m.height-1 || z.r.y == 0 {
 			continue
 		}
 		m.Update(tea.MouseClickMsg{X: z.r.x + z.r.w/2, Y: z.r.y + z.r.h/2, Button: tea.MouseLeft})
 		m.Update(tea.MouseWheelMsg{X: z.r.x + z.r.w/2, Y: z.r.y + z.r.h/2, Button: tea.MouseWheelDown})
-		m.Update(tea.MouseMotionMsg{X: z.r.x, Y: z.r.y})
-		m.palette = nil
-		m.picker.selectOpen = false
+		m.popup = nil
 		m.View()
 	}
 }
 
-func TestPickerFiltersAndSelects(t *testing.T) {
+func TestTreeFiltersSelectsAndRuns(t *testing.T) {
 	m := testModel(t)
-	if s := screen(m); !strings.Contains(s, "FooTest") || !strings.Contains(s, "Run all 4 tests") {
-		t.Fatalf("picker:\n%s", s)
+	if s := screen(m); !strings.Contains(s, "All tests") || !strings.Contains(s, "Ready when you are") {
+		t.Fatalf("start:\n%s", s)
 	}
-	for _, c := range "signup" {
-		m.Update(key(string(c)))
+	press(m, "/")
+	typeText(m, "signup")
+	if !m.tree.visible["t4"] || m.tree.visible["t1"] {
+		t.Fatalf("a filter ignoring spaces and punctuation finds the sign-up test: %v", m.tree.visible)
 	}
-	view := m.picker.tests
-	view.find(m)
-	if !view.visible["t4"] || view.visible["t1"] {
-		t.Fatalf("a filter ignoring spaces and punctuation finds the sign-up test: %v", view.visible)
-	}
-	press(m, "ctrl+a")
+	press(m, "enter", "a")
 	if !m.selected["t4"] || len(m.selected) != 1 {
-		t.Fatalf("^a selects what the filter shows: %v", m.selected)
+		t.Fatalf("a selects what the filter shows: %v", m.selected)
 	}
 	press(m, "esc")
-	if view.text != "" || !view.visible["t1"] {
+	if m.tree.text != "" || !m.tree.visible["t1"] {
 		t.Fatal("Esc clears the filter")
 	}
-	press(m, "home", "space")
-	if len(m.selected) != 4 || !m.selected["t3"] {
+	press(m, "esc")
+	if len(m.selected) != 0 {
+		t.Fatal("a second Esc clears the selection")
+	}
+	press(m, "down", "space")
+	if len(m.selected) != 3 || !m.selected["t3"] {
 		t.Fatalf("space on a class selects its tests, nested ones too: %v", m.selected)
 	}
-	if s := screen(m); !strings.Contains(s, "Run 4 tests") {
-		t.Fatalf("the button counts the selection:\n%s", s)
+	if m.tree.cursor != "c1" {
+		t.Fatalf("the cursor stays on the class it selected, not %s", m.tree.cursor)
 	}
-	press(m, "ctrl+t", "enter", "down", "enter")
-	if m.testTask.Path != ":it" || m.picker.focus != m.picker.tests {
-		t.Fatalf("the task dropdown chose %s", m.testTask.Path)
+	if s := screen(m); strings.Contains(s, "[38;") {
+		t.Fatalf("the class's details show escape codes as text:\n%s", s)
+	}
+	if footer := screen(m); !strings.Contains(footer, "enter  Run 3 selected tests") ||
+		strings.Count(footer, "Run 3 selected tests") != 1 {
+		t.Fatalf("Enter runs the selection:\n%s", footer)
+	}
+	if s := screen(m); !strings.Contains(s, "Run 3 selected tests") || !strings.Contains(s, "3 selected") {
+		t.Fatalf("r says it runs the selection:\n%s", s)
+	}
+	press(m, "ctrl+t", "down", "enter")
+	if m.testTask.Path != ":it" || m.focus != m.tree {
+		t.Fatalf("the task chooser chose %s", m.testTask.Path)
 	}
 	clickEverywhere(t, m)
 }
 
-func TestRunScreenFollowsProgressAndServices(t *testing.T) {
+func TestTestDetailsShowWhatHappenedDuringIt(t *testing.T) {
 	m := testModel(t)
-	m.settings.Command = []string{"true"}
-	m.runStarted = time.Now()
-	m.progress = progress.New(m.settings.RunDir)
+	m.opts.Command = []string{"true"}
+	m.runStarted, m.runCommand = time.Now(), "./gradlew :test"
+	m.progress = progress.New(m.opts.RunDir)
 	m.inRun = map[string]bool{}
-	m.screen = runScreen
 	at := time.Now().UnixMilli() - 2000
 	events := fmt.Sprintf(`{"event":"plan","at":1,"entries":[`+
 		`{"id":"c1","kind":"class","className":"com.a.FooTest","name":"FooTest"},`+
 		`{"id":"t1","parent":"c1","kind":"test","className":"com.a.FooTest","methodName":"one","name":"one()"},`+
 		`{"id":"t2","parent":"c1","kind":"template","className":"com.a.FooTest","methodName":"each","name":"each"}]}
 {"event":"started","at":%[1]d,"id":"t1"}
-{"event":"finished","at":%[2]d,"id":"t1","status":"FAILED","message":"expected: <1> but was: <2>"}
+{"event":"finished","at":%[2]d,"id":"t1","status":"FAILED","message":"AssertionFailedError: expected: <1> but was: <2>","trace":"org.opentest4j.AssertionFailedError: expected: <1> but was: <2>\n\tat org.junit.Assert.fail(Assert.java:1)\n\tat com.a.FooTest.one(FooTest.java:12)"}
 {"event":"registered","at":%[3]d,"entry":{"id":"t2-1","parent":"t2","kind":"test","className":"com.a.FooTest","methodName":"each","name":"[1] a"}}
 {"event":"started","at":%[3]d,"id":"t2-1"}
 `, at, at+400, at+500)
-	if err := os.WriteFile(filepath.Join(m.settings.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(m.opts.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	m.Update(tickMsg{})
-	if s := screen(m); !strings.Contains(s, "expected: <1> but was: <2>") || !strings.Contains(s, "✘ 1") ||
-		!strings.Contains(s, "[1] a  1.5s") {
-		t.Fatalf("overview:\n%s", s)
+	if s := screen(m); !strings.Contains(s, "each › [1] a") || !strings.Contains(s, "RUNNING") ||
+		!strings.Contains(s, "expected: <1> but was: <2>") {
+		t.Fatalf("the dashboard follows the run:\n%s", s)
 	}
 	app := services.NewService("orders", "app", "orders:latest")
 	m.Update(services.Added{Service: app})
 	m.Update(services.Lines{Service: app, Gen: m.gen, Lines: []*logformat.Line{
 		logformat.NewLine(time.UnixMilli(at+200), "2026-10-12 15:45:51,006 ERROR [main] c.l.p.Foo - it broke"),
-		logformat.NewLine(time.UnixMilli(at+300), "\tat com.a.Foo.bar(Foo.java:1)"),
+		logformat.NewLine(time.UnixMilli(at+210), "\tat com.a.Foo.bar(Foo.java:1)"),
+		logformat.NewLine(time.UnixMilli(at+300), "2026-10-12 15:45:51,106 INFO [main] c.l.p.Foo - fine"),
 	}})
-	if s := screen(m); !strings.Contains(s, "★ orders") || !strings.Contains(s, "ERROR it broke") {
-		t.Fatalf("the application's log is the first tab:\n%s", s)
-	}
 	if entry := m.serviceEntry(app); entry.problems != 1 {
 		t.Errorf("problems %d", entry.problems)
 	}
-	press(m, "2")
-	if m.run.current != "detail-tests" {
-		t.Fatalf("2 shows the tests, at %s", m.run.current)
+	m.tree.cursor = "t1"
+	s := screen(m)
+	for _, want := range []string{"FooTest.one(FooTest.java:12)", "1 library frame", "DURING THIS TEST", "it broke"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the test's details lack %q:\n%s", want, s)
+		}
 	}
-	m.run.tests.cursor = "t1"
-	press(m, "l")
-	if m.run.current != "detail-svc-orders" {
-		t.Fatalf("l shows the application's log during the test, at %s", m.run.current)
+	press(m, "3")
+	if m.focus != m.inspector.events {
+		t.Fatalf("3 focuses the timeline, not %T", m.focus)
 	}
-	logs := m.serviceEntry(app).full.(*logView)
-	if logs.window == nil || len(logs.rows) != 2 {
-		t.Fatalf("the log shows the test's time: %v %d", logs.window, len(logs.rows))
+	press(m, "enter")
+	logs, ok := m.serviceEntry(app).view.(*logView)
+	if m.detailFrom != panelServices || !ok || m.focus != any(logs) || logs.window == nil {
+		t.Fatalf("Enter opens the event in the application's log during the test: %v %T", m.detailFrom, m.focus)
 	}
-	press(m, "/", "b", "a", "r", "enter", "e", "w", "v", "t", "f", "esc", "esc")
-	if m.run.current != "overview" {
-		t.Fatalf("Esc goes back to the overview once the filter is clear, at %s", m.run.current)
+	press(m, "/", "b", "r", "o", "k", "enter", "e", "w", "v", "t", "f", "esc", "esc")
+	if m.focus != m.serviceList {
+		t.Fatalf("Esc goes back to the services list once the filter is clear, at %T", m.focus)
 	}
-	for _, k := range []string{"tab", "tab", "tab", "enter", "esc", "]", "[", "3", "up", "down", "tab", "ctrl+p", "esc"} {
-		press(m, k)
-	}
+	press(m, "tab", "tab", "1", "z", "z", "2", "down", "up", "enter")
 	clickEverywhere(t, m)
-	m.run.showView(m, "overview", true)
 	m.Update(runDoneMsg{code: 1})
 	if s := screen(m); !strings.Contains(s, "FAILED") {
 		t.Fatalf("the finished run:\n%s", s)
 	}
-	press(m, "esc")
-	if m.screen != pickerScreen {
-		t.Fatal("Esc on the overview goes to the picker")
+	if failed := m.failedIDs(); !failed["t1"] {
+		t.Fatalf("t1 failed: %v", failed)
 	}
-	press(m, "ctrl+f")
-	if !m.selected["t1"] {
-		t.Fatalf("^f selects the failed tests: %v", m.selected)
+}
+
+func TestTreeAnswersTheMouse(t *testing.T) {
+	m := testModel(t)
+	m.View()
+	click := func(x, y int) {
+		m.Update(tea.MouseClickMsg{X: x, Y: y, Button: tea.MouseLeft})
+		m.View()
+	}
+	const left, firstRow = 2, headerHeight + 1 // inside the panel's border and padding; the rows start with All tests
+	click(left+10, firstRow+2)
+	if m.tree.cursor != "t1" {
+		t.Fatalf("a click on a row moves the cursor there, not to %q", m.tree.cursor)
+	}
+	click(left, firstRow+1)
+	if len(m.selected) != 3 {
+		t.Fatalf("a click on a class's mark selects its tests: %v", m.selected)
+	}
+	click(left+2, firstRow+1)
+	if m.tree.expanded["c1"] {
+		t.Fatal("a click on a class's caret closes it")
+	}
+	click(left+10, firstRow+1)
+	click(left+10, firstRow+1)
+	if !m.tree.expanded["c1"] || m.tree.cursor != "c1" {
+		t.Fatal("a second click on a class opens it")
+	}
+	if s := screen(m); !strings.Contains(s, "● ") || !strings.Contains(s, "◐ ") {
+		t.Fatalf("selected and partly selected rows are marked:\n%s", s)
+	}
+}
+
+func TestKafkaMessageHeaders(t *testing.T) {
+	m := testModel(t)
+	service := services.NewService("kafka", "kafka", "apache/kafka:3.8.0")
+	m.Update(services.Added{Service: service})
+	view := m.serviceEntry(service).view.(*kafkaView)
+	key, value, trace, meta := "k1", `{"id":1}`, "00-abc-01", `{"service":"orders"}`
+	m.Update(kafkaMessagesMsg{view: view, batch: []kafka.Message{{At: time.Now(), Topic: "orders", Key: &key,
+		Value: &value, Headers: []kafka.Header{{Name: "traceparent", Value: &trace}, {Name: "empty"},
+			{Name: "meta", Value: &meta}}}}})
+	m.serviceList.selectEntry(m, m.serviceEntry(service))
+	m.setFocus(m.serviceList)
+	m.setFocus(view.table)
+	if s := screen(m); !strings.Contains(s, "Headers 3") || !strings.Contains(s, `"id": 1`) {
+		t.Fatalf("the value shows first, the headers counted in their tab:\n%s", s)
+	}
+	press(m, "h")
+	s := screen(m)
+	for _, want := range []string{"traceparent  00-abc-01", "empty        null", `"service": "orders"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the headers tab lacks %q:\n%s", want, s)
+		}
+	}
+	if strings.Contains(s, `"id": 1`) {
+		t.Error("the headers tab shows the headers, not the value")
+	}
+}
+
+func TestQuitAsksFirst(t *testing.T) {
+	m := testModel(t)
+	m.Update(key("q"))
+	if _, ok := m.popup.(*confirmQuit); !ok || !strings.Contains(screen(m), "Quit testdash?") {
+		t.Fatal("q asks before quitting")
+	}
+	press(m, "n")
+	if m.popup != nil {
+		t.Fatal("n stays")
+	}
+	m.Update(key("q"))
+	if _, cmd := m.Update(key("y")); cmd == nil {
+		t.Fatal("y quits")
+	}
+}
+
+func TestRunShowsTheRunAndUnselectsThePassed(t *testing.T) {
+	m := testModel(t)
+	m.opts.Command = []string{"true"}
+	m.tree.cursor = "t3"
+	m.selected = map[string]bool{"t1": true, "t3": true, "t4": true}
+	press(m, "enter")
+	if m.tree.cursor != "" || m.focus != m.tree || !strings.Contains(screen(m), "Run · :test") {
+		t.Fatalf("starting a run shows the run, not %q", m.tree.cursor)
+	}
+	for m.runner.Running() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	m.Update(runDoneMsg{code: 1})
+	m.inRun = map[string]bool{"t1": true, "t3": true, "t4": true}
+	m.progress.States = map[string]*progress.State{"t1": {Status: "passed"}, "t3": {Status: "failed"},
+		"t4": {Status: "skipped"}}
+	press(m, "u")
+	if len(m.selected) != 1 || !m.selected["t3"] {
+		t.Fatalf("u keeps only the failed test selected: %v", m.selected)
+	}
+}
+
+func TestLongCommandsFitOneLine(t *testing.T) {
+	m := testModel(t)
+	m.runStarted, m.runFinished = time.Now(), time.Now()
+	m.progress = progress.New(m.opts.RunDir)
+	m.runCommand = "./gradlew :test" + strings.Repeat(" --tests com.a.VeryLongTestClassName", 30)
+	if line := ansi.Strip(m.commandLine(100)); strings.Contains(line, "VeryLong") || !strings.Contains(line, "30 --tests filters") {
+		t.Fatalf("the filters are counted, not listed: %q", line)
+	}
+	press(m, "c")
+	if line := ansi.Strip(m.commandLine(100)); !strings.Contains(line, "VeryLong") {
+		t.Fatalf("c shows the whole command: %q", line)
+	}
+}
+
+func TestCursorStaysHidden(t *testing.T) {
+	m := testModel(t)
+	hides := func(cmd tea.Cmd) bool {
+		var walk func(msg tea.Msg) bool
+		walk = func(msg tea.Msg) bool {
+			switch msg := msg.(type) {
+			case tea.RawMsg:
+				return fmt.Sprint(msg.Msg) == ansi.ResetModeTextCursorEnable
+			case tea.BatchMsg:
+				for _, c := range msg {
+					if c != nil {
+						if _, isTick := c().(tickMsg); !isTick && walk(c()) {
+							return true
+						}
+					}
+				}
+			}
+			return false
+		}
+		return cmd != nil && walk(cmd())
+	}
+	for name, msg := range map[string]tea.Msg{"a resize": tea.WindowSizeMsg{Width: 120, Height: 40},
+		"focus": tea.FocusMsg{}} {
+		if _, cmd := m.Update(msg); !hides(cmd) {
+			t.Errorf("%s hides the cursor again", name)
+		}
+	}
+	if !m.View().ReportFocus {
+		t.Error("focus changes are reported, to hide the cursor after them")
 	}
 }
 
 func TestPaletteRunsCommands(t *testing.T) {
 	m := testModel(t)
-	press(m, "ctrl+p", "s", "h", "o", "w", " ", "t", "e", "s", "t", "s", "enter")
-	if m.screen != runScreen || m.run.current != "detail-tests" {
-		t.Fatalf("the palette shows the tests: screen %v view %s", m.screen, m.run.current)
+	press(m, "ctrl+p")
+	typeText(m, "zoom")
+	press(m, "enter")
+	if !m.zoomed || m.popup != nil {
+		t.Fatal("the palette zooms the details")
 	}
 }
 
-func TestEndpointsGroupIDs(t *testing.T) {
-	for url, want := range map[string]string{
-		"/orders/42?x=1":           "/orders/{id}",
-		"/v2/users/abc123/items":   "/v2/users/{id}/items",
-		"/health":                  "/health",
-		"/a/550e8400-e29b-41d4-a7": "/a/{id}",
-	} {
-		if got := endpoint(url); got != want {
-			t.Errorf("endpoint(%q) = %q, want %q", url, got, want)
-		}
+func TestSettingsSaveAndApply(t *testing.T) {
+	m := testModel(t)
+	defer useIcons(false, 1)
+	press(m, "ctrl+s")
+	if _, ok := m.popup.(*settingsOverlay); !ok {
+		t.Fatal("^s opens the settings")
+	}
+	press(m, "space", "down", "right", "down", "right")
+	saved, err := settings.Load()
+	if err != nil || !saved.NerdFont || saved.IconSpacing != 2 || saved.Theme != "Ocean" {
+		t.Fatalf("the settings were saved: %+v %v", saved, err)
+	}
+	if ic.caretClosed != "\uf460 " {
+		t.Errorf("Nerd Font icons, two spaces apart, are in use at once: %q", ic.caretClosed)
+	}
+	press(m, "up", "up", "space")
+	if saved, _ := settings.Load(); saved.NerdFont || ic.caretClosed != "▸" {
+		t.Error("Unicode icons are back at once")
+	}
+	if s := screen(m); strings.Contains(s, "Icon spacing") {
+		t.Error("icon spacing shows only with Nerd Font icons")
+	}
+	press(m, "esc")
+	if m.popup != nil {
+		t.Error("Esc closes the settings")
+	}
+}
+
+func TestSettingsApp(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	app := NewSettingsApp(settings.Defaults())
+	app.Update(tea.WindowSizeMsg{Width: 120, Height: 30})
+	if s := ansi.Strip(app.View().Content); !strings.Contains(s, "Settings") || !strings.Contains(s, "Preview") {
+		t.Fatalf("settings screen:\n%s", s)
+	}
+	app.Update(key("down"))
+	app.Update(key("down"))
+	app.Update(key("space"))
+	if saved, _ := settings.Load(); saved.Mouse {
+		t.Error("the mouse was switched off and saved")
+	}
+	if _, cmd := app.Update(key("q")); cmd == nil {
+		t.Error("q leaves the settings")
 	}
 }
 
@@ -247,7 +434,7 @@ func TestLogViewScrollsAndFollows(t *testing.T) {
 	for i := 0; i < 100; i++ {
 		lines = append(lines, logformat.NewLine(time.Time{}, strings.Repeat("x", i%7)))
 	}
-	v := newLogView(func() []*logformat.Line { return lines }, func() string { return "" }, "")
+	v := newLogView(func() []*logformat.Line { return lines }, func() string { return "" })
 	v.append(m, lines)
 	v.visible(40, 10)
 	v.scroll(-5)

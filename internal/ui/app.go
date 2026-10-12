@@ -1,10 +1,8 @@
-// Package ui is testdash's terminal interface: the state both screens show (tests, selection, run progress,
-// services, output), the work behind them (listing tests, running them, following Docker), and the screens.
+// Package ui is testdash's terminal interface: one workspace with the tests on the left, the services the run
+// started below them, and on the right the details of whatever is selected, and the work behind it (listing
+// tests, running them, following Docker).
 //
-//	picker ──Enter on Run──▶ run screen: overview ⇄ tests, output, each service (sidebar, 1-9)
-//	       ◀──────Esc───────            ◀──Esc── from any other view
-//
-// Everything the screens show lives on the Model and changes only in Update. Work that waits (Gradle, Docker,
+// Everything the screen shows lives on the Model and changes only in Update. Work that waits (Gradle, Docker,
 // the services' own tools) runs in goroutines that send their results in as messages.
 package ui
 
@@ -12,16 +10,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"image/color"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"testdash/internal/catalog"
 	"testdash/internal/databases"
@@ -30,6 +27,7 @@ import (
 	"testdash/internal/progress"
 	"testdash/internal/runner"
 	"testdash/internal/services"
+	"testdash/internal/settings"
 	"testdash/internal/style"
 )
 
@@ -45,11 +43,13 @@ var notSlug = regexp.MustCompile(`[^A-Za-z0-9_-]`)
 var portTaken = regexp.MustCompile(`Bind for \S*:(\d+) failed: port is already allocated` +
 	`|listen tcp\d? \S*:(\d+): bind: address already in use`)
 
-type Settings struct {
+// Options are what testdash was started with.
+type Options struct {
 	Workdir              string   // where the command runs
 	BuildRoot            string   // the Gradle build, when there is one
-	Command              []string // an explicit or configured command; nil runs the picked Gradle task
+	Command              []string // an explicit or configured command; nil runs the chosen Gradle task
 	ExtraArgs            []string
+	Tests                []string // Gradle --tests patterns from the command line, run at once
 	Task                 string
 	ShowTestOutput       bool
 	IncludeAllContainers bool
@@ -98,28 +98,20 @@ func (b *lineBuffer) clear() {
 	b.lines = nil
 }
 
-// svcEntry is a service and what the UI keeps for it: its log, its problems, its views.
+// svcEntry is a service and what the UI keeps for it: its log, its problems, its view.
 type svcEntry struct {
 	svc      *services.Service
 	slug     string
-	viewID   string
 	lines    *lineBuffer
 	problems int // warnings and errors logged this run, counted as lines arrive
-	full     view
-	ovLog    *logView
+	view     view
 }
 
-type screenID int
-
-const (
-	pickerScreen screenID = iota
-	runScreen
-)
-
 type Model struct {
-	ctx      context.Context
-	send     func(tea.Msg)
-	settings Settings
+	ctx   context.Context
+	send  func(tea.Msg)
+	opts  Options
+	prefs settings.Settings
 
 	catalog       *catalog.Catalog
 	testTask      *catalog.TestTask
@@ -137,6 +129,11 @@ type Model struct {
 	runStarted    time.Time
 	runFinished   time.Time
 	exitCode      int
+	runCommand    string // what the last run ran, as shown
+	runAtStart    bool   // the command line named tests (a task or --tests), so they run straight away
+	requestedTask string // a task path the command line named, run even before discovery knows it
+	discoverAfter bool   // listing the tests waits until the first run is done
+	pendingCmd    tea.Cmd
 	listening     bool
 	claims        *services.Claims
 	watcher       *services.Watcher
@@ -144,47 +141,97 @@ type Model struct {
 	svcs          []*svcEntry
 	logSimple     bool // every log shows a line's level and message only
 	logTime       bool
+	logWrap       bool
 	portConflict  string // why the run could not start its containers
 	explained     map[string]bool
+	version       int // goes up whenever what a test's details show may have changed
+	activityKey   string
+	fullCommand   bool   // the dashboard shows the run's whole command, not one line of it
+	activityText  string // the dashboard's activity, drawn when the key changes
 
 	width, height int
 	spinner       spinner.Model
 	spinning      bool
-	screen        screenID
-	picker        *pickerState
-	run           *runState
+	tree          *testTree
+	serviceList   *serviceList
+	inspector     *inspector
+	outputView    *logView
+	focus         any
+	detailFrom    panel // the panel whose selection the detail shows
+	zoomed        bool
+	popup         popup
 	toasts        []*toast
 	toastSeq      int
-	palette       *palette
 	zones         []zone
 	dirty         bool
 	frame         string
 }
 
-func New(ctx context.Context, settings Settings) *Model {
+func New(ctx context.Context, opts Options, prefs settings.Settings) *Model {
 	m := &Model{
-		ctx: ctx, settings: settings, send: func(tea.Msg) {},
+		ctx: ctx, opts: opts, prefs: prefs, send: func(tea.Msg) {},
 		selected: map[string]bool{}, lastSelection: map[string]bool{}, selectable: map[string]bool{},
 		runner: &runner.Runner{}, discovery: &runner.Runner{},
-		output: &lineBuffer{max: maxOutputLines}, claims: &services.Claims{}, logSimple: true,
+		output: &lineBuffer{max: maxOutputLines}, claims: &services.Claims{},
+		logSimple: !prefs.FullLogLines, logTime: prefs.LogTime, logWrap: prefs.WrapLogs,
 		explained: map[string]bool{}, dirty: true,
 		spinner: spinner.New(spinner.WithSpinner(spinner.MiniDot)),
 	}
-	if settings.BuildRoot != "" {
-		m.catalog = catalog.Load(settings.BuildRoot)
+	style.ApplyTheme(prefs.Theme)
+	useIcons(prefs.NerdFont, prefs.IconSpacing)
+	if opts.BuildRoot != "" {
+		m.catalog = catalog.Load(opts.BuildRoot)
 	}
+	m.takeTaskArgs()
 	var scope []string
-	for _, dir := range []string{settings.Workdir, settings.BuildRoot} {
+	for _, dir := range []string{opts.Workdir, opts.BuildRoot} {
 		if dir != "" {
 			scope = append(scope, dir)
 		}
 	}
 	m.watcher = services.NewWatcher(ctx, func(msg any) { m.send(msg) }, time.Now(), scope,
-		settings.IncludeAllContainers, m.claims)
-	m.picker = newPickerState()
-	m.run = newRunState(m)
-	m.chooseTask(settings.Task, true)
+		opts.IncludeAllContainers, m.claims)
+	m.tree = newTestTree()
+	m.serviceList = &serviceList{}
+	m.inspector = newInspector()
+	m.outputView = newLogView(func() []*logformat.Line { return m.output.all() }, m.outputInfo)
+	m.outputView.wrap = m.logWrap
+	m.focus = m.tree
+	m.chooseTask(m.opts.Task, true)
 	return m
+}
+
+// takeTaskArgs finds task paths among the arguments for Gradle, as gradlew takes them: they choose the task, and
+// like --tests, they mean the run starts at once.
+func (m *Model) takeTaskArgs() {
+	var rest []string
+	for _, arg := range m.opts.ExtraArgs {
+		if path := m.taskArg(arg); path != "" && m.opts.Command == nil {
+			m.opts.Task, m.requestedTask, m.runAtStart = path, path, true
+			continue
+		}
+		rest = append(rest, arg)
+	}
+	m.opts.ExtraArgs = rest
+	if len(m.opts.Tests) > 0 {
+		m.runAtStart = true
+	}
+}
+
+// taskArg is the task path an argument names, or "": a path such as :app:test, or a known task's name.
+func (m *Model) taskArg(arg string) string {
+	if strings.HasPrefix(arg, ":") {
+		return arg
+	}
+	if m.catalog == nil || strings.HasPrefix(arg, "-") {
+		return ""
+	}
+	for _, path := range m.catalog.Paths {
+		if arg == path[strings.LastIndex(path, ":")+1:] {
+			return path
+		}
+	}
+	return ""
 }
 
 // SetSend gives the model the program's Send, for its goroutines.
@@ -200,7 +247,13 @@ func tick() tea.Cmd {
 
 func (m *Model) Init() tea.Cmd {
 	cmds := []tea.Cmd{tick()}
-	if m.settings.BuildRoot != "" && (m.settings.Command == nil || m.commandIsGradle()) {
+	canDiscover := m.opts.BuildRoot != "" && (m.opts.Command == nil || m.commandIsGradle())
+	switch {
+	case m.runAtStart && m.baseCommand() != nil:
+		m.runAtStart = false
+		m.discoverAfter = canDiscover
+		cmds = append(cmds, m.startCommandLineRun())
+	case canDiscover:
 		cmds = append(cmds, m.discover())
 	}
 	if services.Available() {
@@ -208,7 +261,7 @@ func (m *Model) Init() tea.Cmd {
 	} else {
 		m.notify("docker is not on PATH: no service views", "", "warning")
 	}
-	for _, extra := range m.settings.ExtraLogs {
+	for _, extra := range m.opts.ExtraLogs {
 		m.followExtra(extra)
 	}
 	return tea.Batch(cmds...)
@@ -218,7 +271,7 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Shutdown() {
 	m.runner.Kill()
 	m.discovery.Kill()
-	_ = os.RemoveAll(m.settings.RunDir)
+	_ = os.RemoveAll(m.opts.RunDir)
 }
 
 // the tests
@@ -230,7 +283,7 @@ func (m *Model) chooseTask(wanted string, quiet bool) {
 		tasks, paths = m.catalog.Tasks, m.catalog.Paths
 	}
 	path := ""
-	for _, candidate := range []string{wanted, m.taskInCommand(), savedTask(m.settings.BuildRoot), ":test", ":app:test"} {
+	for _, candidate := range []string{wanted, m.taskInCommand(), savedTask(m.opts.BuildRoot), ":test", ":app:test"} {
 		if candidate != "" && tasks[candidate] != nil {
 			path = candidate
 			break
@@ -241,8 +294,8 @@ func (m *Model) chooseTask(wanted string, quiet bool) {
 	}
 	changed := m.testTask == nil || m.testTask.Path != path
 	m.testTask = tasks[path]
-	if m.testTask != nil && m.settings.BuildRoot != "" {
-		saveTask(m.settings.BuildRoot, m.testTask.Path)
+	if m.testTask != nil && m.opts.BuildRoot != "" {
+		saveTask(m.opts.BuildRoot, m.testTask.Path)
 	}
 	m.index()
 	for id := range m.selected {
@@ -253,10 +306,11 @@ func (m *Model) chooseTask(wanted string, quiet bool) {
 	if changed && !quiet && m.testTask != nil {
 		m.notify(fmt.Sprintf("%s: %d tests", m.testTask.Path, len(m.selectable)), "", "information")
 	}
-	m.rebuildTrees(true)
+	m.tree.rebuild(m, true)
+	m.version++
 }
 
-// index builds the tree both screens show: the task's tests, plus the tests the current run created.
+// index builds the tree: the task's tests, plus the tests the current run created.
 func (m *Model) index() {
 	var taskEntries []*catalog.Entry
 	if m.testTask != nil {
@@ -275,6 +329,12 @@ func (m *Model) index() {
 		}
 	}
 	if m.progress != nil {
+		for _, e := range m.progress.Planned { // tests the run has that the listed ones lack
+			if _, seen := m.entries[e.ID]; !seen {
+				m.entries[e.ID] = e
+				order = append(order, e)
+			}
+		}
 		for _, e := range m.progress.Registered {
 			if _, ok := m.entries[e.Parent]; ok {
 				if _, seen := m.entries[e.ID]; !seen {
@@ -326,13 +386,16 @@ func (m *Model) leavesUnder(id string) []string {
 }
 
 // selectionFor is what runs one tree node again: a test, a class's tests, or for a parameterised test's
-// invocation, which Gradle cannot filter on, the whole parameterised test.
+// invocation, which Gradle cannot filter on, the whole parameterised test. "" is every test.
 func (m *Model) selectionFor(id string) map[string]bool {
+	selection := map[string]bool{}
+	if id == "" {
+		return selection
+	}
 	entry := m.entries[id]
 	for entry != nil && !m.selectable[entry.ID] && entry.Kind != "class" {
 		entry = m.entries[entry.Parent]
 	}
-	selection := map[string]bool{}
 	if entry == nil {
 		return selection
 	}
@@ -361,7 +424,7 @@ func (m *Model) windowFor(id string) *window {
 		name = entry.Name
 	}
 	return &window{start: time.UnixMilli(state.StartedAt).Add(-correlationSlack),
-		end: time.UnixMilli(end).Add(correlationSlack), label: "during " + name}
+		end: time.UnixMilli(end).Add(correlationSlack), label: "during " + cleanText(name)}
 }
 
 func (m *Model) descendants(id string) []string {
@@ -392,153 +455,14 @@ func (m *Model) failedIDs() map[string]bool {
 
 func (m *Model) noTaskReason() string {
 	switch {
-	case m.settings.Command != nil && !m.commandIsGradle():
-		return "\nNot a Gradle command, so there is no test list:\nRun runs the command."
+	case m.opts.Command != nil && !m.commandIsGradle():
+		return "Not a Gradle command, so there is no test list. r runs the command."
 	case m.discovering:
-		return "\nListing the build's tests with Gradle…"
-	case m.settings.BuildRoot == "":
-		return "\nNo Gradle build here and no command:\npass one after --"
+		return "Listing the build's tests with Gradle…"
+	case m.opts.BuildRoot == "":
+		return "No Gradle build here and no command: pass one after --"
 	}
-	return "\nNo tests found (List tests again in ^p)"
-}
-
-func (m *Model) describeTest(id string, brief bool) string {
-	entry := m.entries[id]
-	if entry == nil {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(style.Bold.Render(entry.ClassName) + "\n")
-	if entry.Kind == "class" {
-		leaves := m.leavesUnder(id)
-		picked := 0
-		counts := map[string]int{}
-		for _, leaf := range leaves {
-			if m.selected[leaf] {
-				picked++
-			}
-			counts[m.status(leaf)]++
-		}
-		fmt.Fprintf(&b, "%d tests, %d selected\n", len(leaves), picked)
-		for _, status := range []string{"passed", "failed", "skipped", "running", "pending"} {
-			if counts[status] > 0 {
-				mark, s := icon(status)
-				b.WriteString(s.Render(fmt.Sprintf("%s %d %s", mark, counts[status], status)) + "  ")
-			}
-		}
-		return b.String()
-	}
-	b.WriteString(cleanText(entry.Name) + "\n")
-	status, state := m.status(id), m.state(id)
-	if status == "idle" {
-		return b.String() + style.Dim.Render("not run yet")
-	}
-	if status == "absent" {
-		return b.String() + style.Dim.Render("not in the last run")
-	}
-	mark, s := icon(status)
-	b.WriteString(s.Render(mark + " " + status))
-	now := nowMillis()
-	if state.StartedAt != 0 {
-		took, _ := state.Took(now)
-		b.WriteString(style.Dim.Render("  "+duration(took)+"  "+clock(time.UnixMilli(state.StartedAt))) + "\n")
-	}
-	if state.Message != "" {
-		message := cleanBlock(state.Message)
-		if brief {
-			message = strings.Join(firstN(strings.Split(message, "\n"), 6), "\n")
-		}
-		messageStyle := style.Red
-		if state.Status == "skipped" {
-			messageStyle = style.Yellow
-		}
-		b.WriteString("\n" + styleLines(message, messageStyle) + "\n")
-	}
-	if state.StartedAt != 0 && !brief {
-		end := state.FinishedAt
-		if end == 0 {
-			end = now
-		}
-		b.WriteString("\n" + m.correlate(time.UnixMilli(state.StartedAt), time.UnixMilli(end)))
-	}
-	return b.String()
-}
-
-// correlate is what WireMock received, what Kafka carried, what the databases were asked and what the
-// application warned about while a test ran.
-func (m *Model) correlate(start, end time.Time) string {
-	w := &window{start: start.Add(-correlationSlack), end: end.Add(correlationSlack)}
-	var b strings.Builder
-	for _, entry := range m.svcs {
-		if !entry.svc.IsApp() && entry.svc.Kind != "wiremock" && entry.svc.Kind != "kafka" &&
-			!databases.QueryKinds[entry.svc.Kind] {
-			continue
-		}
-		key := entry.svc.Key
-		switch view := entry.full.(type) {
-		case *wiremockView:
-			events := view.eventsBetween(w)
-			unmatched := 0
-			for _, e := range events {
-				if !e.Matched {
-					unmatched++
-				}
-			}
-			header := fmt.Sprintf("%s: %d requests", key, len(events))
-			if unmatched > 0 {
-				header += fmt.Sprintf(", %d unmatched", unmatched)
-			}
-			b.WriteString(style.Bold.Render(header) + "\n")
-			for _, e := range sortedByTime(events) {
-				line := fmt.Sprintf("  %s %d %s %s", clock(e.At), e.Status, e.Method, cleanText(e.URL))
-				if e.Matched {
-					b.WriteString(line + "\n")
-				} else {
-					b.WriteString(style.Red.Render(line+"  no stub matched") + "\n")
-				}
-			}
-		case *kafkaView:
-			messages := view.messagesBetween(w)
-			b.WriteString(style.Bold.Render(fmt.Sprintf("%s: %d messages", key, len(messages))) + "\n")
-			for _, message := range lastN(messages, 15) {
-				messageKey := ""
-				if message.Key != nil {
-					messageKey = cleanText(*message.Key)
-				}
-				b.WriteString(fmt.Sprintf("  %s %s", clock(message.At), cleanText(message.Topic)) +
-					style.Dim.Render("  "+messageKey) + "\n")
-			}
-		case *dbView:
-			queries := view.queriesBetween(w)
-			b.WriteString(style.Bold.Render(fmt.Sprintf("%s: %d queries", key, len(queries))) + "\n")
-			for _, q := range lastN(queries, 10) {
-				target := ""
-				if q.Target != "" {
-					target = q.Target + " "
-				}
-				flat := []rune(strings.Join(strings.Fields(cleanText(q.Text)), " "))
-				b.WriteString("  " + clock(q.At) + " " + style.Dim.Render(target+string(flat[:min(100, len(flat))])) + "\n")
-			}
-		default:
-			if !entry.svc.IsApp() {
-				continue
-			}
-			var problems []*logformat.Line
-			for _, line := range entry.lines.all() {
-				if w.holds(line.At) && !line.At.IsZero() && line.IsLoggedProblem() {
-					problems = append(problems, line)
-				}
-			}
-			b.WriteString(style.Bold.Render(fmt.Sprintf("%s: %d warnings or errors", key, len(problems))) + "\n")
-			for _, line := range firstN(problems, 25) {
-				b.WriteString(line.Render(m.logSimple, true) + "\n")
-			}
-		}
-	}
-	if b.Len() == 0 {
-		return style.Dim.Render("No services seen while it ran")
-	}
-	return b.String()
+	return "No tests found. List them again from the palette (ctrl+p)."
 }
 
 type outputMsg struct{ lines []string }
@@ -550,7 +474,7 @@ type discoveredMsg struct {
 }
 
 func (m *Model) discover() tea.Cmd {
-	root := m.settings.BuildRoot
+	root := m.opts.BuildRoot
 	if root == "" {
 		return nil
 	}
@@ -558,13 +482,12 @@ func (m *Model) discover() tea.Cmd {
 		m.notify("Already listing the tests", "", "information")
 		return nil
 	}
-	outputDir := filepath.Join(m.settings.RunDir, "discovery")
+	outputDir := filepath.Join(m.opts.RunDir, "discovery")
 	_ = os.RemoveAll(outputDir)
 	_ = os.MkdirAll(outputDir, 0o755)
 	m.discovering = true
 	m.addOutput("── listing tests with Gradle ──", "bold")
-	send := m.send
-	discovery := m.discovery
+	send, discovery := m.send, m.discovery
 	return tea.Batch(m.spin(), func() tea.Msg {
 		command, err := gradle.DiscoverCommand(filepath.Join(root, "gradlew"), outputDir)
 		if err != nil {
@@ -582,21 +505,25 @@ func (m *Model) discovered(msg discoveredMsg) {
 		return
 	}
 	m.catalog.UpdateFromDiscovery(msg.outputDir)
-	current := m.settings.Task
+	current := m.opts.Task
 	if m.testTask != nil {
 		current = m.testTask.Path
 	}
 	m.chooseTask(current, true)
 	if msg.code != 0 && len(m.catalog.Tasks) == 0 {
-		m.notify("Listing the tests failed: see Output on the run screen", "", "error")
+		m.notify("Listing the tests failed: see Gradle's output", "", "error")
+	}
+	if m.runAtStart {
+		m.runAtStart = false
+		m.pendingCmd = m.startCommandLineRun()
 	}
 }
 
 func (m *Model) taskInCommand() string {
-	if len(m.settings.Command) == 0 || m.catalog == nil {
+	if len(m.opts.Command) == 0 || m.catalog == nil {
 		return ""
 	}
-	for _, argument := range m.settings.Command[1:] {
+	for _, argument := range m.opts.Command[1:] {
 		for _, path := range m.catalog.Paths {
 			if argument == path || argument == path[strings.LastIndex(path, ":")+1:] {
 				return path
@@ -607,29 +534,53 @@ func (m *Model) taskInCommand() string {
 }
 
 func (m *Model) commandIsGradle() bool {
-	return len(m.settings.Command) > 0 && gradle.IsGradle(m.settings.Command)
+	return len(m.opts.Command) > 0 && gradle.IsGradle(m.opts.Command)
 }
 
 // running
 
 func (m *Model) baseCommand() []string {
-	if m.settings.Command != nil {
-		return m.settings.Command
-	}
-	if m.testTask != nil && m.settings.BuildRoot != "" {
-		return []string{filepath.Join(m.settings.BuildRoot, "gradlew"), m.testTask.Path}
+	switch {
+	case m.opts.Command != nil:
+		return m.opts.Command
+	case m.opts.BuildRoot == "":
+		return nil
+	case m.requestedTask != "" && (m.testTask == nil || m.testTask.Path != m.requestedTask):
+		return []string{filepath.Join(m.opts.BuildRoot, "gradlew"), m.requestedTask}
+	case m.testTask != nil:
+		return []string{filepath.Join(m.opts.BuildRoot, "gradlew"), m.testTask.Path}
 	}
 	return nil
+}
+
+// startCommandLineRun runs what the command line named: its --tests patterns as Gradle matches them, which
+// also become the selection, so r runs them again.
+func (m *Model) startCommandLineRun() tea.Cmd {
+	if len(m.opts.Tests) == 0 {
+		return m.startRun(nil)
+	}
+	if m.testTask != nil {
+		m.selected = catalog.MatchTests(m.testTask, m.opts.Tests)
+	}
+	var filters []string
+	for _, pattern := range m.opts.Tests {
+		filters = append(filters, "--tests", pattern)
+	}
+	return m.launch(filters, m.selected)
 }
 
 type runDoneMsg struct{ code int }
 
 type listeningMsg struct{ on bool }
 
-// startRun runs the selection, or the picker's selection when nil.
+func (m *Model) running() bool {
+	return !m.runStarted.IsZero() && m.runFinished.IsZero()
+}
+
+// startRun runs a selection of tests; an empty one runs them all.
 func (m *Model) startRun(selection map[string]bool) tea.Cmd {
 	if m.runner.Running() {
-		m.notify("Already running: stop it first (x, or ctrl+x in the picker)", "", "warning")
+		m.notify("Already running: x stops it", "", "warning")
 		return nil
 	}
 	base := m.baseCommand()
@@ -637,33 +588,48 @@ func (m *Model) startRun(selection map[string]bool) tea.Cmd {
 		m.notify("Nothing to run: no Gradle test task and no command", "", "warning")
 		return nil
 	}
-	if selection == nil {
-		selection = m.selected
-	}
 	picked := map[string]bool{}
 	for id := range selection {
 		if m.selectable[id] {
 			picked[id] = true
 		}
 	}
+	var filters []string
+	if len(picked) > 0 && len(picked) < len(m.selectable) && m.testTask != nil && gradle.IsGradle(base) {
+		filters = catalog.GradleFilters(m.testTask, picked) // every test selected runs the task as it is
+	}
+	return m.launch(filters, picked)
+}
+
+// launch runs the command with test filters added.
+func (m *Model) launch(filters []string, picked map[string]bool) tea.Cmd {
+	if m.runner.Running() {
+		m.notify("Already running: x stops it", "", "warning")
+		return nil
+	}
+	base := m.baseCommand()
+	if base == nil {
+		m.notify("Nothing to run: no Gradle test task and no command", "", "warning")
+		return nil
+	}
 	m.lastSelection = picked
 	if m.discovering {
 		m.discovery.Stop()
 	}
-	command := append(append([]string{}, base...), m.settings.ExtraArgs...)
-	if len(picked) > 0 && m.testTask != nil && gradle.IsGradle(command) {
-		command = append(command, catalog.GradleFilters(m.testTask, picked)...)
+	command := append(append([]string{}, base...), m.opts.ExtraArgs...)
+	if gradle.IsGradle(command) {
+		command = append(command, filters...)
 	}
-	shown := strings.Join(command, " ")
+	m.runCommand = strings.Join(command, " ")
 	m.listening = gradle.IsGradle(command)
-	if files, _ := filepath.Glob(filepath.Join(m.settings.RunDir, "progress-*.jsonl")); len(files) > 0 {
+	if files, _ := filepath.Glob(filepath.Join(m.opts.RunDir, "progress-*.jsonl")); len(files) > 0 {
 		for _, stale := range files {
 			_ = os.Remove(stale)
 		}
 	}
 	m.runStarted, m.runFinished, m.exitCode = time.Now(), time.Time{}, 0
 	m.portConflict, m.explained = "", map[string]bool{}
-	m.progress = progress.New(m.settings.RunDir)
+	m.progress = progress.New(m.opts.RunDir)
 	m.inRun = map[string]bool{}
 	m.index()
 	m.updateClaims()
@@ -671,20 +637,18 @@ func (m *Model) startRun(selection map[string]bool) tea.Cmd {
 	for _, entry := range m.svcs {
 		entry.lines.clear()
 		entry.problems = 0
-		entry.full.clear()
-		entry.ovLog.clear()
+		entry.view.clear()
 	}
 	m.output.clear()
-	m.screen = runScreen
-	m.run.outputView.clear()
-	m.run.ovOutput.clear()
-	m.run.showView(m, "overview", true)
-	m.addOutput("▶ "+shown, "bold")
-	m.rebuildTrees(true)
+	m.outputView.clear()
+	m.addOutput("▶ "+m.displayCommand(), "bold")
+	m.tree.rebuild(m, false)
+	m.version++
+	m.showRun()
 	spin := m.spin()
 
-	send, runDir, quiet := m.send, m.settings.RunDir, !m.settings.ShowTestOutput
-	workdir, run := m.settings.Workdir, m.runner
+	send, runDir, quiet := m.send, m.opts.RunDir, !m.opts.ShowTestOutput
+	workdir, run := m.opts.Workdir, m.runner
 	listening := m.listening
 	go func() {
 		if listening {
@@ -702,10 +666,50 @@ func (m *Model) startRun(selection map[string]bool) tea.Cmd {
 	return spin
 }
 
+// showRun turns the details to the run's dashboard, as a run starts.
+func (m *Model) showRun() {
+	m.tree.cursor, m.tree.want = "", ""
+	m.tree.scrollToCursor = true
+	m.setFocus(m.tree)
+}
+
+// unselectPassed drops the tests that passed (or were skipped) from the selection, keeping those that failed
+// or have not run.
+func (m *Model) unselectPassed() {
+	dropped := 0
+	for id := range m.selected {
+		if s := m.status(id); s == "passed" || s == "skipped" {
+			delete(m.selected, id)
+			dropped++
+		}
+	}
+	if dropped > 0 {
+		m.notify(fmt.Sprintf("Unselected %s; %d still selected", count(dropped, "passed test"), len(m.selected)),
+			"", "information")
+	}
+}
+
+// selectionPassed is whether any selected test passed or was skipped, for u to unselect.
+func (m *Model) selectionPassed() bool {
+	for id := range m.selected {
+		if s := m.status(id); s == "passed" || s == "skipped" {
+			return true
+		}
+	}
+	return false
+}
+
+// runLabel says what r runs.
+func (m *Model) runLabel() string {
+	if n := len(m.selected); n > 0 {
+		return "Run " + count(n, "selected test")
+	}
+	return "Run all"
+}
+
 // updateClaims tells the watcher what the run's tests said about their containers.
 func (m *Model) updateClaims() {
-	state := services.ClaimState{Listening: m.listening,
-		RunActive: !m.runStarted.IsZero() && m.runFinished.IsZero()}
+	state := services.ClaimState{Listening: m.listening, RunActive: m.running()}
 	if m.progress != nil {
 		state.Testcontainers, state.Labels = m.progress.Testcontainers, m.progress.ContainerLabels
 	}
@@ -743,9 +747,9 @@ func (m *Model) explainPort(msg portHolderMsg) {
 	if msg.holder != "" {
 		holder = " by " + msg.holder
 	}
-	m.portConflict = style.Red.Render("✘ ") + style.BoldRed.Render("Port "+msg.port+" is taken") + holder +
+	m.portConflict = "Port " + msg.port + " is taken" + holder +
 		". Another run is probably using it: wait for it to finish, or stop it, then run again."
-	m.notifyFor(cleanText(m.portConflict), "The run could not start its containers", "error", 20*time.Second)
+	m.notifyFor(m.portConflict, "The run could not start its containers", "error", 20*time.Second)
 }
 
 func (m *Model) runDone(code int) tea.Cmd {
@@ -755,12 +759,17 @@ func (m *Model) runDone(code int) tea.Cmd {
 	summary := m.runSummary()
 	if code == 0 {
 		m.addOutput("passed in "+took, "green")
-		m.notify(fmt.Sprintf("Passed: %d tests in %s", summary.passed, took), "", "information")
+		m.notify(fmt.Sprintf("%d tests passed in %s", summary.passed, took), "Passed", "success")
 	} else {
 		m.addOutput(fmt.Sprintf("failed (exit %d) in %s", code, took), "red")
-		m.notify(fmt.Sprintf("Failed: %d of %d tests failed (exit %d)", summary.failed, summary.total, code), "", "error")
+		m.notify(fmt.Sprintf("%d of %d tests failed (exit %d)", summary.failed, summary.total, code), "Failed", "error")
 	}
 	m.updateClaims()
+	m.version++
+	if m.discoverAfter {
+		m.discoverAfter = false
+		return tea.Batch(cmd, m.discover())
+	}
 	return cmd
 }
 
@@ -782,8 +791,7 @@ func (m *Model) addOutput(text, styleName string) tea.Cmd {
 	}
 	line := logformat.NewLine(time.Now(), text)
 	m.output.add(line)
-	m.run.outputView.append(m, []*logformat.Line{line})
-	m.run.ovOutput.append(m, []*logformat.Line{line})
+	m.outputView.append(m, []*logformat.Line{line})
 	return cmd
 }
 
@@ -796,16 +804,15 @@ func (m *Model) addOutputLines(texts []string) tea.Cmd {
 		lines = append(lines, logformat.NewLine(now, text))
 	}
 	m.output.add(lines...)
-	m.run.outputView.append(m, lines)
-	m.run.ovOutput.append(m, lines)
+	m.outputView.append(m, lines)
 	return tea.Batch(cmds...)
 }
 
 func (m *Model) outputInfo() string {
-	return style.Bold.Render(cleanText(strings.Join(m.baseCommand(), " "))) + style.Dim.Render("   "+m.settings.Workdir)
+	return style.Muted.Render(m.displayCommand()) + style.Dim.Render("   in "+m.opts.Workdir)
 }
 
-// what the screens summarise
+// what the screen summarises
 
 type runEntry struct {
 	entry *catalog.Entry
@@ -816,6 +823,10 @@ type summary struct {
 	total, passed, failed, skipped, left int
 	running                              []runEntry
 	recent                               []runEntry // finished, the failures first, latest first
+}
+
+func (s summary) done() int {
+	return s.passed + s.failed + s.skipped
 }
 
 func (m *Model) runLeaves() []*catalog.Entry {
@@ -869,38 +880,16 @@ func (m *Model) runSummary() summary {
 	return s
 }
 
+func sortByFinished(entries []runEntry) {
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].state.FinishedAt > entries[j].state.FinishedAt })
+}
+
 func (m *Model) elapsed() string {
 	end := m.runFinished
 	if end.IsZero() {
 		end = time.Now()
 	}
 	return duration(end.Sub(m.runStarted).Milliseconds())
-}
-
-// stateText is how the run is going, inline.
-func (m *Model) stateText() string {
-	switch {
-	case m.runStarted.IsZero():
-		return style.Dim.Render("no run yet")
-	case m.runFinished.IsZero():
-		return style.Cyan.Render(m.spinnerFrame() + " running " + m.elapsed())
-	case m.exitCode == 0:
-		return style.Green.Render("✔ passed in " + m.elapsed())
-	}
-	return style.Red.Render(fmt.Sprintf("✘ failed in %s (exit %d)", m.elapsed(), m.exitCode))
-}
-
-// stateBadge is how the run is going, as a pill.
-func (m *Model) stateBadge() string {
-	switch {
-	case m.runStarted.IsZero():
-		return style.Pill("no run yet", style.SubtleText, style.Raised)
-	case m.runFinished.IsZero():
-		return style.BoldPill(m.spinnerFrame()+" RUNNING "+m.elapsed(), style.Base, style.Run)
-	case m.exitCode == 0:
-		return style.BoldPill("✔ PASSED "+m.elapsed(), style.Base, style.Pass)
-	}
-	return style.BoldPill(fmt.Sprintf("✘ FAILED %s · exit %d", m.elapsed(), m.exitCode), style.Base, style.Fail)
 }
 
 // activity is what a run is doing when no test is running: building, setting up a class, or finishing.
@@ -911,13 +900,15 @@ func (m *Model) activity() string {
 			settingUp = e
 		}
 	}
-	if settingUp != nil {
-		return style.Cyan.Render(m.spinnerFrame() + " setting up " + settingUp.ShortClass())
+	switch {
+	case m.portConflict != "":
+		return "can't start its containers"
+	case settingUp != nil:
+		return "setting up " + settingUp.ShortClass()
+	case len(m.runLeaves()) > 0:
+		return "finishing…"
 	}
-	if len(m.runLeaves()) > 0 {
-		return style.Cyan.Render(m.spinnerFrame() + " finishing…")
-	}
-	return style.Cyan.Render(m.spinnerFrame() + " building…")
+	return "building…"
 }
 
 // allEntries is every entry in tree order.
@@ -934,108 +925,40 @@ func (m *Model) allEntries() []*catalog.Entry {
 	return all
 }
 
-// statusText is the status bar's two lines: the test running, then the counts and how the run is going.
-func (m *Model) statusText() []string {
-	if m.runStarted.IsZero() {
-		return []string{style.Muted.Render("No run yet: select tests, then ") + style.AccentBold.Render("Enter") +
-			style.Muted.Render(" twice to run them"), ""}
-	}
-	s := m.runSummary()
-	var first string
-	switch {
-	case len(s.running) > 0:
-		r := s.running[0]
-		name := r.entry.Method
-		if name == "" {
-			name = r.entry.Name
-		}
-		first = style.Cyan.Render(m.spinnerFrame()+" ") + style.BoldCyan.Render(cleanText(name))
-		if r.entry.Method != "" && r.entry.Name != r.entry.Method {
-			first += style.Cyan.Render("  " + cleanText(r.entry.Name))
-		}
-		took, _ := r.state.Took(nowMillis())
-		first += style.Dim.Render("  in ") + style.Muted.Render(m.groupOf(r.entry)) + style.Dim.Render("  "+duration(took))
-		if len(s.running) > 1 {
-			first += style.Dim.Render(fmt.Sprintf("  +%d more running", len(s.running)-1))
-		}
-	case m.portConflict != "":
-		first = m.portConflict
-	case m.runFinished.IsZero():
-		first = m.activity()
-	default:
-		first = style.Muted.Render("Run finished")
-	}
-	return []string{first, m.countPills(s) + "  " + m.stateBadge()}
-}
-
-// countPills are the run's counts as pills, lit when not zero, and its progress.
-func (m *Model) countPills(s summary) string {
-	var b strings.Builder
-	for _, part := range []struct {
-		n      int
-		label  string
-		status string
-		color  color.Color
-	}{{s.passed, "passed", "passed", style.Pass}, {s.failed, "failed", "failed", style.Fail},
-		{s.skipped, "skipped", "skipped", style.Warn}, {s.left, "left", "pending", style.MutedText}} {
-		mark, _ := icon(part.status)
-		text := fmt.Sprintf("%s %d %s", mark, part.n, part.label)
-		if part.n > 0 {
-			b.WriteString(style.Pill(text, part.color, style.Tint(part.color)))
-		} else {
-			b.WriteString(style.Pill(text, style.SubtleText, style.Raised))
-		}
-		b.WriteString(" ")
-	}
-	done := s.passed + s.failed + s.skipped
-	fraction := 0.0
-	if s.total > 0 {
-		fraction = float64(done) / float64(s.total)
-	}
-	b.WriteString(" " + style.Bar(20, fraction, m.barColors(s)...) + style.Muted.Render(fmt.Sprintf(" %d/%d", done, s.total)))
-	return b.String()
-}
-
-// barColors are a progress bar's gradient: green to teal while all is well, amber to red once a test failed.
-func (m *Model) barColors(s summary) []color.Color {
-	if s.failed > 0 {
-		return []color.Color{style.Warn, style.Fail}
-	}
-	return []color.Color{style.Teal, style.Pass}
-}
-
-// groupOf is the classes a test sits in, outermost first, by their display names: Outer › Nested.
-func (m *Model) groupOf(entry *catalog.Entry) string {
+// groupOf is what a test sits in, outermost first: Outer › Nested, and the parameterised test of an invocation.
+func (m *Model) groupOf(entry *catalog.Entry) []string {
 	var names []string
 	for parent := m.entries[entry.Parent]; parent != nil; parent = m.entries[parent.Parent] {
-		if parent.Kind == "class" {
-			names = append([]string{cleanText(parent.Name)}, names...)
+		name := cleanText(parent.Name)
+		if grand := m.entries[parent.Parent]; parent.Kind == "class" && (grand == nil || grand.Kind != "class") {
+			name = parent.ShortClass()
 		}
+		names = append([]string{name}, names...)
 	}
-	if len(names) == 0 {
-		return entry.ShortClass()
-	}
-	return strings.Join(names, " › ")
+	return names
 }
 
-// titleBar is the top line: the wordmark, the repo and task, how the run is going, where you are, and a hint.
-func (m *Model) titleBar(place, hint string) string {
-	left := " " + style.Gradient("◆ testdash", true, style.Primary, style.Pink) + "  " +
-		style.Muted.Render(filepath.Base(m.settings.Workdir)) + "  "
-	if m.testTask != nil && m.settings.Command == nil {
-		left += style.Pill(m.testTask.Path, style.Teal, style.Raised) + "  "
+// testName is a test's name, with its parameterised test's in front of an invocation's: positive › [1] 1.
+func (m *Model) testName(entry *catalog.Entry) string {
+	name := cleanText(entry.Name)
+	if parent := m.entries[entry.Parent]; parent != nil && parent.Kind == "template" {
+		name = cleanText(parent.Name) + " › " + name
 	}
-	left += m.stateBadge()
-	if place != "" {
-		left += "  " + style.AccentText.Render("›") + " " + style.Bold.Render(place)
+	return name
+}
+
+// displayCommand is the run's command with the build's directory left out, as it was typed.
+func (m *Model) displayCommand() string {
+	command := m.runCommand
+	if command == "" {
+		command = strings.Join(m.baseCommand(), " ")
 	}
-	right := style.Dim.Render(hint) + " "
-	gap := m.width - ansi.StringWidth(left) - ansi.StringWidth(right)
-	line := left
-	if gap > 1 {
-		line += strings.Repeat(" ", gap) + right
+	for _, dir := range []string{m.opts.BuildRoot, m.opts.Workdir} {
+		if dir != "" {
+			command = strings.ReplaceAll(command, dir+"/", "./")
+		}
 	}
-	return style.WithBg(fit(line, m.width, true), style.FgBg(style.Text, style.Surface))
+	return cleanText(command)
 }
 
 // services (the watcher's messages)
@@ -1049,46 +972,54 @@ func (m *Model) serviceEntry(service *services.Service) *svcEntry {
 	return nil
 }
 
+// orderedServices are the services as the list shows them: the applications first.
+func (m *Model) orderedServices() []*svcEntry {
+	var apps, others []*svcEntry
+	for _, entry := range m.svcs {
+		if entry.svc.IsApp() {
+			apps = append(apps, entry)
+		} else {
+			others = append(others, entry)
+		}
+	}
+	return append(apps, others...)
+}
+
 func (m *Model) serviceAdded(service *services.Service) {
 	if m.serviceEntry(service) != nil {
 		return
 	}
-	slug := notSlug.ReplaceAllString(service.Key, "-")
-	entry := &svcEntry{svc: service, slug: slug, viewID: "detail-svc-" + slug,
+	entry := &svcEntry{svc: service, slug: notSlug.ReplaceAllString(service.Key, "-"),
 		lines: &lineBuffer{max: maxServiceLines}}
 	source := func() []*logformat.Line { return entry.lines.all() }
 	info := func() string { return m.serviceInfo(service) }
 	switch {
 	case service.Kind == "wiremock":
-		entry.full = newWiremockView(m, entry, info)
+		entry.view = newWiremockView(m, entry, info)
 	case service.Kind == "kafka":
-		entry.full = newKafkaView(m, entry, info)
+		entry.view = newKafkaView(m, entry, info)
 	case databases.QueryKinds[service.Kind]:
-		entry.full = newDBView(m, entry, info)
+		entry.view = newDBView(m, entry, info)
 	default:
-		entry.full = newLogView(source, info, "")
+		log := newLogView(source, info)
+		log.wrap = m.logWrap
+		entry.view = log
 	}
-	entry.ovLog = newLogView(source, info, "")
 	m.svcs = append(m.svcs, entry)
-	m.run.addService(m, entry)
+	m.version++
 }
 
 func (m *Model) serviceChanged(service *services.Service) {
 	entry := m.serviceEntry(service)
-	if entry == nil {
-		return
-	}
-	if service.State() == "previous" {
-		entry.full.clear()
-		entry.ovLog.clear()
+	if entry != nil && service.State() == "previous" {
+		entry.view.clear()
 	}
 }
 
 func (m *Model) serviceLines(msg services.Lines) {
-	if msg.Gen != m.gen {
-		return
+	if msg.Gen == m.gen {
+		m.addServiceLines(m.serviceEntry(msg.Service), msg.Lines)
 	}
-	m.addServiceLines(m.serviceEntry(msg.Service), msg.Lines)
 }
 
 func (m *Model) addServiceLines(entry *svcEntry, lines []*logformat.Line) {
@@ -1101,8 +1032,8 @@ func (m *Model) addServiceLines(entry *svcEntry, lines []*logformat.Line) {
 		}
 	}
 	entry.lines.add(lines...)
-	entry.full.append(m, lines)
-	entry.ovLog.append(m, lines)
+	entry.view.append(m, lines)
+	m.version++
 }
 
 func serviceStateName(state string) string {
@@ -1123,13 +1054,7 @@ func (m *Model) serviceInfo(service *services.Service) string {
 		role = "the application"
 	}
 	id := service.ContainerID()
-	state := service.State()
-	badge := style.Pill(serviceStateName(state), style.SubtleText, style.Raised)
-	if state == "running" {
-		badge = style.Pill("● running", style.Pass, style.Tint(style.Pass))
-	}
-	return style.Bold.Render(cleanText(service.Key)) + "  " + style.Muted.Render(role) + "  " +
-		style.Dim.Render(cleanText(service.Image())+"  "+id[:min(12, len(id))]) + "  " + badge
+	return style.Muted.Render(role) + style.Dim.Render("  "+cleanText(service.Image())+"  "+id[:min(12, len(id))])
 }
 
 type extraLinesMsg struct {
@@ -1148,7 +1073,7 @@ func (m *Model) followExtra(extra ExtraLog) {
 	service := services.NewService(extra.Name, kind, source)
 	m.serviceAdded(service)
 	entry := m.serviceEntry(service)
-	send, ctx, workdir := m.send, m.ctx, m.settings.Workdir
+	send, ctx, workdir := m.send, m.ctx, m.opts.Workdir
 	if extra.Command != "" && extra.File == "" {
 		go followCommand(ctx, extra.Command, workdir, func(lines []string) { send(extraLinesMsg{entry, lines}) },
 			func() { send(extraStoppedMsg{entry}) })
@@ -1199,6 +1124,7 @@ func (m *Model) tick() tea.Cmd {
 	}
 	if grew {
 		m.index()
+		m.tree.rebuild(m, false)
 	}
 	var cmds []tea.Cmd
 	for id := range changed {
@@ -1207,21 +1133,15 @@ func (m *Model) tick() tea.Cmd {
 			cmds = append(cmds, m.checkPorts(state.Message))
 		}
 	}
-	m.updateClaims()
 	if len(changed) > 0 {
-		for _, tv := range []*testsView{m.picker.tests, m.run.tests} {
-			if grew {
-				tv.rebuild(m, !tv.picking && tv.empty())
-			}
-			tv.changed(m, changed)
+		m.version++
+		m.tree.flatDirty = true
+		if m.tree.show != "all" && !grew { // which tests show depends on how they did
+			m.tree.rebuild(m, false)
 		}
 	}
+	m.updateClaims()
 	return tea.Batch(cmds...)
-}
-
-func (m *Model) rebuildTrees(reset bool) {
-	m.picker.tests.rebuild(m, reset)
-	m.run.tests.rebuild(m, reset)
 }
 
 // helpers

@@ -1,0 +1,502 @@
+package ui
+
+import (
+	"fmt"
+	"image/color"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/charmbracelet/x/ansi"
+
+	"testdash/internal/catalog"
+	"testdash/internal/logformat"
+	"testdash/internal/style"
+)
+
+// dashboard is the run as a whole: how it is going, what failed, how busy each service has been, every class
+// on the run's time line, and while it runs, a live feed of what the build and the services are doing, filling
+// what is left of height. Before any run, how to start.
+func (m *Model) dashboard(width, height int) string {
+	if m.runStarted.IsZero() {
+		return m.welcome(width)
+	}
+	s := m.runSummary()
+	var b strings.Builder
+	b.WriteString(m.commandLine(width) + "\n\n")
+	counts := map[string]int{"passed": s.passed, "failed": s.failed, "skipped": s.skipped, "pending": s.left}
+	b.WriteString(countLine(counts, s.total) + "\n")
+	b.WriteString(style.Bar(width, float64(s.done())/float64(max(1, s.total)), m.barColors(s)...) + "\n")
+	if m.portConflict != "" {
+		b.WriteString("\n" + style.Red.Render(ic.failed+" ") + style.BoldRed.Render("The run could not start its containers") + "\n")
+		b.WriteString(strings.Join(wrapLines(style.Muted.Render(m.portConflict), width-2), "\n") + "\n")
+	}
+	if m.running() {
+		b.WriteString("\n" + section("Now", width, "") + "\n")
+		if len(s.running) == 0 {
+			b.WriteString(style.Cyan.Render(runningGlyph+" "+m.activity()) + "\n")
+		}
+		for _, r := range s.running {
+			took, _ := r.state.Took(nowMillis())
+			b.WriteString(style.Cyan.Render(runningGlyph+" ") + style.Muted.Render(strings.Join(m.groupOf(r.entry), " › ")+" › ") +
+				style.Bold.Render(cleanText(r.entry.Name)) + style.Dim.Render("  "+duration(took)) + "\n")
+		}
+	}
+	var ids []string
+	for _, e := range m.runLeaves() {
+		ids = append(ids, e.ID)
+	}
+	if failures := m.failuresIn(ids); failures != "" {
+		b.WriteString("\n" + section("Failures", width, fmt.Sprint(s.failed)) + "\n" + failures)
+	}
+	if m.running() {
+		b.WriteString("\n" + m.activitySection(width))
+		b.WriteString("\n" + m.classTable(width))
+		used := len(lines(b.String()))
+		if rows := height - used - 2; rows >= 3 {
+			b.WriteString("\n" + section("Live", width, "the newest from the build and the services") + "\n")
+			b.WriteString(m.liveFeed(rows, width))
+		}
+		return b.String()
+	}
+	b.WriteString("\n" + m.classTable(width))
+	b.WriteString("\n" + m.activitySection(width))
+	if slow := m.slowest(ids, 5, width); slow != "" {
+		b.WriteString("\n" + section("Slowest", width, "") + "\n" + slow)
+	}
+	return b.String()
+}
+
+// commandLine is the run's badge and command on one line, its --tests filters counted rather than listed, or
+// with c, the whole command.
+func (m *Model) commandLine(width int) string {
+	badge := m.stateBadge() + "  "
+	command := m.displayCommand()
+	words := strings.Fields(command)
+	var kept []string
+	filters := 0
+	for i := 0; i < len(words); i++ {
+		if words[i] == "--tests" && i+1 < len(words) {
+			filters++
+			i++
+			continue
+		}
+		kept = append(kept, words[i])
+	}
+	if filters == 0 && ansi.StringWidth(badge+command) <= width {
+		return badge + style.Dim.Render(command)
+	}
+	if m.fullCommand {
+		return badge + style.Dim.Render(command) + "  " + keyCap("c") + style.Dim.Render(" less")
+	}
+	short := style.Dim.Render(strings.Join(kept, " "))
+	if filters > 0 {
+		short += "  " + style.Pill(count(filters, "--tests filter"), style.MutedText, style.Raised)
+	}
+	more := "  " + keyCap("c") + style.Dim.Render(" whole command")
+	return fit(badge+short, max(0, width-ansi.StringWidth(more)), true) + more
+}
+
+// runSpan is the run's time so far: when it started, and how long it has taken.
+func (m *Model) runSpan() (time.Time, time.Duration) {
+	end := m.runFinished
+	if end.IsZero() {
+		end = time.Now()
+	}
+	return m.runStarted, max(time.Second, end.Sub(m.runStarted))
+}
+
+// column is where a moment of the run falls on a line width cells long.
+func column(at, start time.Time, span time.Duration, width int) int {
+	return max(0, min(width-1, int(float64(at.Sub(start))/float64(span)*float64(width))))
+}
+
+// classRow is how one class of the run is doing, its nested classes included.
+type classRow struct {
+	entry                                   *catalog.Entry
+	leaves                                  []string
+	total, passed, failed, skipped, running int
+	took                                    int64
+}
+
+func (r classRow) done() int {
+	return r.passed + r.failed + r.skipped
+}
+
+// runClasses are the run's top-level classes in the order the run takes them.
+func (m *Model) runClasses() []classRow {
+	var rows []classRow
+	index := map[string]int{}
+	for _, leaf := range m.runLeaves() {
+		top := m.entries[leaf.ID]
+		for top != nil && m.entries[top.Parent] != nil {
+			top = m.entries[top.Parent]
+		}
+		if top == nil {
+			continue
+		}
+		i, ok := index[top.ID]
+		if !ok {
+			i = len(rows)
+			index[top.ID] = i
+			rows = append(rows, classRow{entry: top})
+		}
+		row := &rows[i]
+		row.total++
+		row.leaves = append(row.leaves, leaf.ID)
+		state := m.state(leaf.ID)
+		switch state.Status {
+		case "passed":
+			row.passed++
+		case "failed", "aborted":
+			row.failed++
+		case "skipped":
+			row.skipped++
+		case "running":
+			row.running++
+		}
+		if took, ok := state.Took(nowMillis()); ok {
+			row.took += took
+		}
+	}
+	return rows
+}
+
+// classTable is every class in the run on the run's time line: when it was setting up (a thin line), when each
+// of its tests ran, coloured by how it did, and how far it got.
+func (m *Model) classTable(width int) string {
+	rows := m.runClasses()
+	if len(rows) == 0 {
+		return ""
+	}
+	finished := 0
+	for _, r := range rows {
+		if r.done() == r.total {
+			finished++
+		}
+	}
+	const countsWidth = 16
+	nameWidth := min(48, max(16, width/3))
+	barWidth := max(10, width-nameWidth-countsWidth-17)
+	start, span := m.runSpan()
+	var b strings.Builder
+	b.WriteString(section("Classes", width, fmt.Sprintf("%d of %d done", finished, len(rows))) + "\n")
+	b.WriteString(strings.Repeat(" ", nameWidth+3) + axis(barWidth, span) + "\n")
+	nowMillis := time.Now().UnixMilli()
+	for _, r := range rows {
+		status := "pending"
+		switch {
+		case r.failed > 0:
+			status = "failed"
+		case r.running > 0:
+			status = "running"
+		case r.done() == r.total:
+			status = "passed"
+		}
+		mark, markStyle := icon(status)
+		cells := make([]style.Cell, barWidth)
+		draw := func(from, to int64, cell style.Cell) {
+			if from == 0 {
+				return
+			}
+			if to == 0 {
+				to = nowMillis
+			}
+			for c := column(time.UnixMilli(from), start, span, barWidth); c <= column(time.UnixMilli(to), start, span, barWidth); c++ {
+				cells[c] = cell
+			}
+		}
+		class := m.state(r.entry.ID)
+		draw(class.StartedAt, class.FinishedAt, style.Cell{Char: "─", Color: style.SubtleText})
+		for _, leaf := range r.leaves {
+			state := m.state(leaf)
+			draw(state.StartedAt, state.FinishedAt, style.Cell{Char: "━", Color: statusColor(state.Status)})
+		}
+		var counts []string
+		if r.passed > 0 {
+			counts = append(counts, style.Green.Render(fmt.Sprintf("%s %d", ic.passed, r.passed)))
+		}
+		if r.failed > 0 {
+			counts = append(counts, style.Red.Render(fmt.Sprintf("%s %d", ic.failed, r.failed)))
+		}
+		if r.skipped > 0 {
+			counts = append(counts, style.Yellow.Render(fmt.Sprintf("%s %d", ic.skipped, r.skipped)))
+		}
+		took := ""
+		if r.took > 0 {
+			took = duration(r.took)
+		}
+		name := style.Muted.Render(r.entry.ShortClass())
+		if status != "pending" {
+			name = style.Bold.Render(r.entry.ShortClass())
+		}
+		b.WriteString(markStyle.Render(mark) + " " + fit(name, nameWidth, true) + " " + style.Cells(cells) + " " +
+			fit(style.Dim.Render(fmt.Sprintf("%d/%d", r.done(), r.total)), 7, false) +
+			fit(strings.Join(counts, " "), countsWidth-6, false) + style.Dim.Render(fmt.Sprintf("%6s", took)) + "\n")
+	}
+	return b.String()
+}
+
+func statusColor(status string) color.Color {
+	switch status {
+	case "passed":
+		return style.Pass
+	case "failed", "aborted":
+		return style.Fail
+	case "skipped":
+		return style.Warn
+	}
+	return style.Run
+}
+
+// axis marks a time line width cells long: the start, the middle and the end.
+func axis(width int, span time.Duration) string {
+	marks := []struct {
+		at    int
+		label string
+	}{{0, "0s"}, {width / 2, duration(span.Milliseconds() / 2)}, {width, duration(span.Milliseconds())}}
+	line := []rune(strings.Repeat(" ", width))
+	for _, mark := range marks {
+		label := []rune(mark.label)
+		at := max(0, min(width-len(label), mark.at-len(label)/2))
+		if mark.at == width {
+			at = width - len(label)
+		}
+		copy(line[at:], label)
+	}
+	return style.Dim.Render(string(line))
+}
+
+// activity is how busy one source was over the run, a count for each slice of its time.
+type activityRow struct {
+	icon, label string
+	counts      []int
+	colorOf     func(i int) color.Color
+	total       string
+}
+
+// activitySection is a sparkline for each source over the run so far: tests finishing, Gradle's output, each
+// service's log (yellow or red where it warned or failed), requests, messages and queries.
+func (m *Model) activitySection(width int) string {
+	start, span := m.runSpan()
+	key := fmt.Sprintf("%d/%d/%d/%s", m.version, width, int(span.Seconds()), ic.output)
+	if m.activityKey != key {
+		m.activityKey, m.activityText = key, m.drawActivity(width, start, span)
+	}
+	return m.activityText
+}
+
+func (m *Model) drawActivity(width int, start time.Time, span time.Duration) string {
+	const labelWidth, totalWidth = 18, 18
+	buckets := max(10, width-labelWidth-totalWidth-2)
+	bucket := func(at time.Time) int {
+		if at.Before(start) {
+			return -1
+		}
+		return column(at, start, span, buckets)
+	}
+	var rows []activityRow
+
+	tests, failedAt := make([]int, buckets), make([]bool, buckets)
+	done := 0
+	for _, leaf := range m.runLeaves() {
+		state := m.state(leaf.ID)
+		if state.FinishedAt == 0 {
+			continue
+		}
+		done++
+		if i := bucket(time.UnixMilli(state.FinishedAt)); i >= 0 {
+			tests[i]++
+			failedAt[i] = failedAt[i] || state.Status == "failed" || state.Status == "aborted"
+		}
+	}
+	rows = append(rows, activityRow{ic.check, "Tests", tests, func(i int) color.Color {
+		if failedAt[i] {
+			return style.Fail
+		}
+		return style.Pass
+	}, fmt.Sprintf("%d done", done)})
+
+	output := m.output.all()
+	gradle := make([]int, buckets)
+	for _, line := range output {
+		if i := bucket(line.At); i >= 0 {
+			gradle[i]++
+		}
+	}
+	rows = append(rows, activityRow{ic.output, "Gradle", gradle, func(int) color.Color { return style.Primary },
+		count(len(output), "line")})
+
+	for _, entry := range m.orderedServices() {
+		counts := make([]int, buckets)
+		switch v := entry.view.(type) {
+		case *wiremockView:
+			unmatched := make([]bool, buckets)
+			missed := 0
+			for _, e := range v.events {
+				if i := bucket(e.At); i >= 0 {
+					counts[i]++
+					unmatched[i] = unmatched[i] || !e.Matched
+				}
+				if !e.Matched {
+					missed++
+				}
+			}
+			total := count(len(v.events), "request")
+			if missed > 0 {
+				total += style.Red.Render(fmt.Sprintf(" %s %d", ic.failed, missed))
+			}
+			rows = append(rows, activityRow{kindIcon(entry.svc.Kind), entry.svc.Key, counts, func(i int) color.Color {
+				if unmatched[i] {
+					return style.Fail
+				}
+				return style.Teal
+			}, total})
+		case *kafkaView:
+			for _, message := range v.messages {
+				if i := bucket(message.At); i >= 0 {
+					counts[i]++
+				}
+			}
+			rows = append(rows, activityRow{kindIcon(entry.svc.Kind), entry.svc.Key, counts,
+				func(int) color.Color { return style.Pink }, count(len(v.messages), "message")})
+		case *dbView:
+			for _, q := range v.queries {
+				if i := bucket(q.At); i >= 0 && !q.Noise() {
+					counts[i]++
+				}
+			}
+			rows = append(rows, activityRow{kindIcon(entry.svc.Kind), entry.svc.Key, counts,
+				func(int) color.Color { return style.Orange }, count(len(v.queries)-v.chatter, "query", "queries")})
+		default:
+			severity := make([]int, buckets)
+			lines := entry.lines.all()
+			for _, line := range lines {
+				i := bucket(line.At)
+				if i < 0 {
+					continue
+				}
+				counts[i]++
+				if record := line.Record(); record != nil {
+					switch record.Level {
+					case "ERROR", "FATAL":
+						severity[i] = 2
+					case "WARN":
+						severity[i] = max(severity[i], 1)
+					}
+				}
+			}
+			total := count(len(lines), "line")
+			if entry.problems > 0 {
+				total += style.Yellow.Render(fmt.Sprintf(" %s %d", ic.warning, entry.problems))
+			}
+			base := style.MutedText
+			if entry.svc.IsApp() {
+				base = style.Primary
+			}
+			rows = append(rows, activityRow{kindIcon(entry.svc.Kind), entry.svc.Key, counts, func(i int) color.Color {
+				switch severity[i] {
+				case 2:
+					return style.Fail
+				case 1:
+					return style.Warn
+				}
+				return base
+			}, total})
+		}
+	}
+
+	var b strings.Builder
+	b.WriteString(section("Activity", width, "since the run started, "+duration(span.Milliseconds())+" ago") + "\n")
+	for _, row := range rows {
+		label := style.Dim.Render(row.icon+" ") + cleanText(row.label)
+		b.WriteString(fit(label, labelWidth, true) + " " + style.Sparkline(row.counts, row.colorOf) + " " +
+			style.Dim.Render(row.total) + "\n")
+	}
+	return b.String()
+}
+
+// liveFeed is the newest of everything the run shows, in time order: Gradle's output, the applications' logs
+// (and other services' warnings), requests, messages and queries.
+func (m *Model) liveFeed(n, width int) string {
+	var events []timelineEvent
+	add := func(at time.Time, source string, c color.Color, summary string) {
+		if !at.IsZero() && !at.Before(m.runStarted.Add(-correlationSlack)) {
+			events = append(events, timelineEvent{at: at, source: source, color: c, summary: summary})
+		}
+	}
+	for _, line := range lastN(m.output.all(), n) {
+		if text := strings.TrimSpace(cleanText(line.Text)); text != "" {
+			add(line.At, "gradle", style.Primary, text)
+		}
+	}
+	for _, entry := range m.svcs {
+		key := entry.svc.Key
+		switch v := entry.view.(type) {
+		case *wiremockView:
+			for _, e := range lastN(v.events, n) {
+				summary := style.Bold.Render(cleanText(e.Method)) + " " + cleanText(e.URL) + " " + httpStatus(e.Status)
+				if !e.Matched {
+					summary += style.Red.Render("  no stub")
+				}
+				add(e.At, key, style.Teal, summary)
+			}
+		case *kafkaView:
+			for _, message := range lastN(v.messages, n) {
+				add(message.At, key, style.Pink, style.Bold.Render(cleanText(message.Topic))+"  "+
+					style.Dim.Render(preview(message.Value, 80)))
+			}
+		case *dbView:
+			found := 0
+			for i := len(v.queries) - 1; i >= 0 && found < n; i-- {
+				if q := v.queries[i]; !q.Noise() {
+					text := cleanText(q.Text)
+					summary := preview(&text, 120)
+					if q.Target != "" {
+						summary = style.Bold.Render(q.Kind+" "+q.Target) + "  " + style.Dim.Render(preview(&text, 100))
+					}
+					add(q.At, key, style.Orange, summary)
+					found++
+				}
+			}
+		default:
+			lines := entry.lines.all()
+			found := 0
+			for i := len(lines) - 1; i >= 0 && found < n && i >= len(lines)-20*n; i-- {
+				line := lines[i]
+				if !feedWorthy(line, entry.svc.IsApp()) {
+					continue
+				}
+				first, _, _ := strings.Cut(line.Render(true, false), "\n")
+				c := style.MutedText
+				if entry.svc.IsApp() {
+					c = style.Warn
+				}
+				add(line.At, key, c, first)
+				found++
+			}
+		}
+	}
+	sort.SliceStable(events, func(i, j int) bool { return events[i].at.Before(events[j].at) })
+	var b strings.Builder
+	for _, ev := range lastN(events, n) {
+		source := style.Pill(fit(cleanText(ev.source), 10, true), ev.color, style.Tint(ev.color))
+		b.WriteString(fit(style.Dim.Render(clock(ev.at))+" "+source+" "+ev.summary, width, true) + "\n")
+	}
+	if len(events) == 0 {
+		b.WriteString(style.Dim.Render("Nothing yet.") + "\n")
+	}
+	return b.String()
+}
+
+// feedWorthy is whether a log line belongs in the live feed: an application's records and lines that are not
+// part of a stack trace, and anything's warnings and errors.
+func feedWorthy(line *logformat.Line, app bool) bool {
+	if line.IsLoggedProblem() {
+		return true
+	}
+	if !app || strings.TrimSpace(line.Text) == "" {
+		return false
+	}
+	return line.Record() != nil || (line.Text[0] != ' ' && line.Text[0] != '\t')
+}

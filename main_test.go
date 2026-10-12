@@ -8,7 +8,7 @@ import (
 
 func TestParseArgs(t *testing.T) {
 	opts, err := parseArgs([]string{"--task", ":app:it", "--info", "--show-test-output", "--config=x.json", "-x", "check",
-		"--", "npm", "test", "--watch"})
+		"--tests", "*OrderTest", "--tests=com.a.B.c", "--", "npm", "test", "--watch"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -17,6 +17,9 @@ func TestParseArgs(t *testing.T) {
 	}
 	if !reflect.DeepEqual(opts.extra, []string{"--info", "-x", "check"}) {
 		t.Errorf("extra %q", opts.extra)
+	}
+	if !reflect.DeepEqual(opts.tests, []string{"*OrderTest", "com.a.B.c"}) {
+		t.Errorf("tests %q", opts.tests)
 	}
 	if !reflect.DeepEqual(opts.explicit, []string{"npm", "test", "--watch"}) {
 		t.Errorf("explicit %q", opts.explicit)

@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -96,7 +97,8 @@ func lines(text string) []string {
 	return strings.Split(strings.TrimSuffix(text, "\n"), "\n")
 }
 
-// wrapLines word-wraps text to width, keeping its styles.
+// wrapLines word-wraps text to width, keeping its styles: a style still open at the end of a line carries on
+// at the start of the next.
 func wrapLines(text string, width int) []string {
 	if width <= 0 {
 		return nil
@@ -107,9 +109,31 @@ func wrapLines(text string, width int) []string {
 			out = append(out, line)
 			continue
 		}
-		out = append(out, strings.Split(ansi.Wrap(line, width, ""), "\n")...)
+		out = append(out, carryStyles(strings.Split(ansi.Wrap(line, width, ""), "\n"))...)
 	}
 	return out
+}
+
+var sgrSequence = regexp.MustCompile(`\x1b\[[0-9;:]*m`)
+
+// carryStyles starts each line with the styles left open by the lines before it, and closes them at its end.
+func carryStyles(parts []string) []string {
+	open := ""
+	for i, part := range parts {
+		line := open + part
+		for _, sequence := range sgrSequence.FindAllString(part, -1) {
+			if sequence == style.Reset || sequence == "\x1b[0m" {
+				open = ""
+			} else {
+				open += sequence
+			}
+		}
+		if open != "" {
+			line += style.Reset
+		}
+		parts[i] = line
+	}
+	return parts
 }
 
 // overlay draws top over base at (x, y), keeping what base shows either side of it.
@@ -198,23 +222,25 @@ func splitWidth(total int, fractions ...int) []int {
 	return widths
 }
 
-var icons = map[string][2]string{
-	"pending": {"○", "dim"}, "running": {"▶", "cyan"}, "passed": {"✔", "green"}, "failed": {"✘", "red"},
-	"aborted": {"⚠", "yellow"}, "skipped": {"↷", "yellow"}, "absent": {"·", "dim"}, "idle": {"·", "dim"},
-}
-
 // runningGlyph is the spinner's frame, which a running test shows; the model sets it as it draws.
 var runningGlyph = "▶"
 
 func icon(status string) (string, style.Style) {
-	i, ok := icons[status]
-	if !ok {
-		i = icons["pending"]
+	switch status {
+	case "running":
+		return runningGlyph, style.Cyan
+	case "passed":
+		return ic.passed, style.Green
+	case "failed":
+		return ic.failed, style.Red
+	case "aborted":
+		return ic.aborted, style.Yellow
+	case "skipped":
+		return ic.skipped, style.Yellow
+	case "absent", "idle":
+		return ic.idle, style.Dim
 	}
-	if status == "running" {
-		return runningGlyph, style.ByName(i[1])
-	}
-	return i[0], style.ByName(i[1])
+	return ic.pending, style.Dim
 }
 
 func clock(at time.Time) string {

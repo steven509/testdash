@@ -2,9 +2,6 @@ package ui
 
 import (
 	"image/color"
-	"os"
-	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,13 +16,22 @@ import (
 	"testdash/internal/style"
 )
 
+// panel is one of the screen's three parts.
+type panel int
+
+const (
+	panelTests panel = iota
+	panelServices
+	panelDetail
+)
+
 // binding is a key and what it does. Shown bindings appear in the footer while they are enabled.
 type binding struct {
 	keys     []string
 	display  string
 	label    string
 	show     bool
-	priority bool // checked before the focused widget, as Textual's priority bindings are
+	priority bool // checked before the focused widget gets the key
 	enabled  func() bool
 	run      func() tea.Cmd
 }
@@ -76,14 +82,12 @@ func displayKey(key string) string {
 		return "←"
 	case key == "right":
 		return "→"
-	case key == "enter":
-		return "⏎"
 	}
 	return key
 }
 
-// level is one step of the chain a key goes up: the focused widget, the views around it, the screen, the app.
-// Only the focused widget's level gets keys raw, for typing and moving.
+// level is one step of the chain a key goes up: the focused widget, the view around it, the app. Only the
+// focused widget's level gets keys raw, for typing and moving.
 type level struct {
 	raw      func(k tea.KeyPressMsg) (bool, tea.Cmd)
 	bindings []binding
@@ -94,11 +98,16 @@ type zone struct {
 	r     rect
 	click func(x, y int) tea.Cmd // relative to the zone
 	wheel func(delta int)
-	hover string // a sidebar item's view id, whose tip shows on hover
 }
 
 func (m *Model) addZone(z zone) {
 	m.zones = append(m.zones, z)
+}
+
+// popup is a dialog over the screen that takes every key while it is open.
+type popup interface {
+	key(m *Model, k tea.KeyPressMsg) tea.Cmd
+	render(m *Model, screen []string)
 }
 
 type notifyMsg struct {
@@ -119,8 +128,8 @@ func (m *Model) notifyFor(text, title, severity string, timeout time.Duration) {
 	m.toastSeq++
 	m.toasts = append(m.toasts, &toast{id: m.toastSeq, text: text, title: title, severity: severity,
 		expires: time.Now().Add(timeout)})
-	if len(m.toasts) > 5 {
-		m.toasts = m.toasts[len(m.toasts)-5:]
+	if len(m.toasts) > 4 {
+		m.toasts = m.toasts[len(m.toasts)-4:]
 	}
 }
 
@@ -134,11 +143,19 @@ func (m *Model) expireToasts() {
 	m.toasts = kept
 }
 
+func (m *Model) dismissToast(id int) {
+	for i, t := range m.toasts {
+		if t.id == id {
+			m.toasts = append(m.toasts[:i], m.toasts[i+1:]...)
+			return
+		}
+	}
+}
+
 type (
 	wiremockMsg struct {
-		view  *wiremockView
-		poll  wiremockPoll
-		reset bool
+		view *wiremockView
+		poll wiremockPoll
 	}
 	kafkaMessagesMsg struct {
 		view  *kafkaView
@@ -154,10 +171,6 @@ type (
 		view  *dbView
 		batch []databases.Query
 	}
-	findMsg struct {
-		view *testsView
-		seq  int
-	}
 )
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -165,10 +178,16 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+		return m, hideCursor()
+	case tea.FocusMsg:
+		return m, hideCursor()
 	case tea.KeyPressMsg:
 		return m, m.key(msg)
 	case tea.PasteMsg:
-		if input := m.focusedInput(); input != nil {
+		if p, ok := m.popup.(*palette); ok {
+			p.input.insert(msg.Content)
+			p.filter(m)
+		} else if input := m.focusedInput(); input != nil && m.popup == nil {
 			input.insert(msg.Content)
 			return m, m.inputChanged(input)
 		}
@@ -188,19 +207,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-	case tea.MouseMotionMsg:
-		mouse := msg.Mouse()
-		hover := ""
-		for i := len(m.zones) - 1; i >= 0; i-- {
-			if z := m.zones[i]; z.r.contains(mouse.X, mouse.Y) {
-				hover = z.hover
-				break
-			}
-		}
-		m.dirty = hover != m.run.navHover
-		m.run.navHover = hover
 	case tickMsg:
-		return m, tea.Batch(m.tick(), tick(), m.spin())
+		return m, tea.Batch(m.tick(), tick(), m.spin(), hideCursor())
 	case spinner.TickMsg:
 		if !m.busy() {
 			m.spinning = false
@@ -208,7 +216,7 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		var cmd tea.Cmd
 		m.spinner, cmd = m.spinner.Update(msg)
-		return m, cmd
+		return m, tea.Batch(cmd, hideCursor())
 	case outputMsg:
 		return m, m.addOutputLines(msg.lines)
 	case runDoneMsg:
@@ -218,6 +226,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.updateClaims()
 	case discoveredMsg:
 		m.discovered(msg)
+		cmd := m.pendingCmd
+		m.pendingCmd = nil
+		return m, cmd
 	case notifyMsg:
 		m.notify(msg.text, msg.title, msg.severity)
 	case portHolderMsg:
@@ -234,25 +245,31 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		msg.entry.svc.SetState("stopped")
 	case wiremockMsg:
 		msg.view.polled(m, msg.poll)
+		m.version++
 	case kafkaMessagesMsg:
 		msg.view.received(m, msg.batch)
+		m.version++
 	case kafkaTopicsMsg:
 		msg.view.polled(m, msg)
 	case queriesMsg:
 		msg.view.received(m, msg.batch)
-	case findMsg:
-		if msg.seq == msg.view.findSeq {
-			msg.view.find(m)
-		}
+		m.version++
 	default:
 		m.dirty = false
 	}
 	return m, nil
 }
 
+// hideCursor hides the terminal's cursor again. Bubble Tea hides it once, at the start; a terminal that shows it
+// again (after a focus change or a refresh, say) would leave it blinking wherever the screen last changed, which
+// while a run goes is the spinner.
+func hideCursor() tea.Cmd {
+	return tea.Raw(ansi.ResetModeTextCursorEnable)
+}
+
 // busy is whether something runs, which the spinners show.
 func (m *Model) busy() bool {
-	return m.discovering || (!m.runStarted.IsZero() && m.runFinished.IsZero())
+	return m.discovering || m.running()
 }
 
 // spin starts the spinners when something runs and they are still.
@@ -277,32 +294,66 @@ func (m *Model) quit() tea.Cmd {
 
 // keys
 
-func (m *Model) appLevel() level {
+func (m *Model) globalLevel() level {
+	hasFailures := func() bool { return len(m.failedIDs()) > 0 }
+	run := bind("r", m.runLabel(), func() tea.Cmd { return m.startRun(m.selected) }).when(func() bool { return !m.running() })
+	if m.panelOf(m.focus) == panelTests && len(m.selected) > 0 {
+		run = run.hidden() // enter says the same in the tests
+	}
 	return level{bindings: []binding{
-		bind("ctrl+q ctrl+c", "Quit", m.quit).hidden(),
-		bind("ctrl+p", "palette", func() tea.Cmd { m.openPalette(); return nil }).hidden(),
+		run,
+		bind("F", "Run failed", func() tea.Cmd { return m.startRun(m.failedIDs()) }).
+			when(func() bool { return !m.running() && hasFailures() }),
+		bind("x", "Stop", func() tea.Cmd { m.stop(); return nil }).when(m.busy),
+		bind("ctrl+t", "Task", func() tea.Cmd { m.openTasks(); return nil }).hidden(),
+		bind("z", "Zoom", func() tea.Cmd { m.zoomed = !m.zoomed; return nil }).hidden(),
+		bind("c", "Command", func() tea.Cmd { m.fullCommand = !m.fullCommand; return nil }).hidden().
+			when(func() bool { return m.detailFrom == panelTests && m.tree.cursor == "" && !m.runStarted.IsZero() }),
+		bind("?", "Help", func() tea.Cmd { m.popup = &help{}; return nil }).hidden(),
+		bind("q ctrl+q ctrl+c", "Quit", func() tea.Cmd { m.popup = &confirmQuit{}; return nil }),
+		bind("ctrl+p :", "Commands", func() tea.Cmd { m.openPalette(); return nil }).hidden(),
+		bind("ctrl+s", "Settings", func() tea.Cmd { m.openSettings(); return nil }).hidden(),
 		bind("tab", "Next", func() tea.Cmd { m.moveFocus(1); return nil }).hidden(),
 		bind("shift+tab", "Previous", func() tea.Cmd { m.moveFocus(-1); return nil }).hidden(),
+		bind("1", "Tests", func() tea.Cmd { m.zoomed = false; m.setFocus(m.tree); return nil }).hidden(),
+		bind("2", "Services", func() tea.Cmd { m.zoomed = false; m.setFocus(m.serviceList); return nil }).hidden(),
+		bind("3", "Details", func() tea.Cmd { m.setFocus(m.detailView().main()); return nil }).hidden(),
+	}}
+}
+
+// detailLevel is what the detail pane does whatever it shows: Esc goes back to the list it shows.
+func (m *Model) detailLevel() level {
+	return level{bindings: []binding{
+		bind("esc", "Back", func() tea.Cmd {
+			if m.zoomed {
+				m.zoomed = false
+			} else if m.detailFrom == panelServices {
+				m.setFocus(m.serviceList)
+			} else {
+				m.setFocus(m.tree)
+			}
+			return nil
+		}),
 	}}
 }
 
 func (m *Model) chain() []level {
 	m.ensureFocus()
 	var levels []level
-	if m.screen == pickerScreen {
-		levels = m.picker.chain(m)
-	} else {
-		levels = m.run.chain(m)
+	switch m.panelOf(m.focus) {
+	case panelTests:
+		levels = m.tree.levels(m)
+	case panelServices:
+		levels = []level{m.serviceList.level(m)}
+	default:
+		levels = append(m.detailView().levels(m, m.focus), m.detailLevel())
 	}
-	return append(levels, m.appLevel())
+	return append(levels, m.globalLevel())
 }
 
 func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
-	if m.palette != nil {
-		return m.palette.key(m, k)
-	}
-	if m.screen == pickerScreen && m.picker.selectOpen {
-		return m.picker.dropdownKey(m, k)
+	if m.popup != nil {
+		return m.popup.key(m, k)
 	}
 	key := k.String()
 	chain := m.chain()
@@ -330,8 +381,8 @@ func (m *Model) key(k tea.KeyPressMsg) tea.Cmd {
 	return nil
 }
 
-// footerBindings are the shown, enabled bindings of the chain, the focused widget's first, as Textual's footer
-// lists them; an inner binding takes the place of an outer one with the same key.
+// footerBindings are the shown, enabled bindings of the chain, the focused widget's first; an inner binding
+// takes the place of an outer one with the same key.
 func (m *Model) footerBindings() []binding {
 	var out []binding
 	seen := map[string]bool{}
@@ -346,14 +397,31 @@ func (m *Model) footerBindings() []binding {
 	return out
 }
 
+func keyCap(key string) string {
+	return style.BoldPill(key, style.Primary, style.Raised)
+}
+
+// keyCapWide is a key cap with its key centred in a fixed width, for lists of keys that line up.
+func keyCapWide(key string, width int) string {
+	pad := max(0, width-ansi.StringWidth(key))
+	return style.BoldPill(strings.Repeat(" ", pad/2)+key+strings.Repeat(" ", pad-pad/2), style.Primary, style.Raised)
+}
+
 func (m *Model) footer(y int) string {
+	helpText := keyCap("?") + " " + style.Muted.Render("help") + "  "
+	commandsText := keyCap("^p") + " " + style.Muted.Render("commands") + " "
+	helpWidth, commandsWidth := ansi.StringWidth(helpText), ansi.StringWidth(commandsText)
+	rightWidth := helpWidth + commandsWidth
+	m.addZone(zone{r: rect{m.width - rightWidth, y, helpWidth, 1},
+		click: func(int, int) tea.Cmd { m.popup = &help{}; return nil }})
+	m.addZone(zone{r: rect{m.width - commandsWidth, y, commandsWidth, 1},
+		click: func(int, int) tea.Cmd { m.openPalette(); return nil }})
 	var b strings.Builder
 	x := 1
-	keyCap := func(key string) string { return style.BoldPill(key, style.Primary, style.Raised) }
 	for _, binding := range m.footerBindings() {
 		text := keyCap(binding.display) + " " + style.Muted.Render(binding.label) + "  "
 		w := ansi.StringWidth(text)
-		if x+w > m.width-14 {
+		if x+w > m.width-rightWidth-1 {
 			break
 		}
 		run := binding.run
@@ -361,54 +429,48 @@ func (m *Model) footer(y int) string {
 		b.WriteString(text)
 		x += w
 	}
-	palette := keyCap("^p") + " " + style.Muted.Render("palette") + " "
-	pw := ansi.StringWidth(palette)
-	if gap := m.width - 1 - x - pw; gap > 0 {
-		b.WriteString(strings.Repeat(" ", gap) + palette)
-		m.addZone(zone{r: rect{m.width - pw, y, pw, 1}, click: func(int, int) tea.Cmd { m.openPalette(); return nil }})
-	}
-	return style.WithBg(" "+fit(b.String(), m.width-1, false), style.Bg(style.Surface))
+	left := " " + b.String()
+	gap := max(0, m.width-ansi.StringWidth(left)-rightWidth)
+	return left + strings.Repeat(" ", gap) + helpText + commandsText
 }
 
 // focus
 
+func (m *Model) panelOf(target any) panel {
+	switch target {
+	case any(m.tree), any(m.tree.filter):
+		return panelTests
+	case any(m.serviceList):
+		return panelServices
+	}
+	return panelDetail
+}
+
+// detailView is what the detail pane shows: the test, class or run under the tree's cursor, or the service
+// under the services list's.
+func (m *Model) detailView() view {
+	if m.detailFrom == panelServices {
+		return m.serviceList.selectedView(m)
+	}
+	return m.inspector
+}
+
 func (m *Model) focusables() []any {
-	if m.screen == pickerScreen {
-		return m.picker.focusables(m)
+	detail := m.detailView().focusables(m)
+	if m.zoomed {
+		return detail
 	}
-	return m.run.focusables(m)
-}
-
-// ensureFocus moves focus to the view's main widget when what had it is no longer on screen, such as another
-// log tab's filter field.
-func (m *Model) ensureFocus() {
-	for _, target := range m.focusables() {
-		if target == m.focused() {
-			return
-		}
+	var targets []any
+	if m.tree.filterShown {
+		targets = append(targets, m.tree.filter)
 	}
-	switch {
-	case m.screen == pickerScreen:
-		m.picker.focus = m.picker.tests
-	case m.run.current == "overview":
-		m.run.focus = focusPanelTests
-	default:
-		m.run.focus = m.run.viewOf(m.run.currentView()).main()
-	}
-}
-
-func (m *Model) focused() any {
-	if m.screen == pickerScreen {
-		return m.picker.focus
-	}
-	return m.run.focus
+	return append(append(targets, m.tree, m.serviceList), detail...)
 }
 
 func (m *Model) setFocus(target any) {
-	if m.screen == pickerScreen {
-		m.picker.focus = target
-	} else {
-		m.run.focus = target
+	m.focus = target
+	if p := m.panelOf(target); p != panelDetail {
+		m.detailFrom = p
 	}
 }
 
@@ -419,7 +481,7 @@ func (m *Model) moveFocus(step int) {
 	}
 	current := -1
 	for i, t := range targets {
-		if t == m.focused() {
+		if t == m.focus {
 			current = i
 		}
 	}
@@ -430,33 +492,58 @@ func (m *Model) moveFocus(step int) {
 	m.setFocus(targets[next])
 }
 
+// ensureFocus moves focus to something on screen when what had it went away, such as a filter field that
+// closed or a tab that changed.
+func (m *Model) ensureFocus() {
+	for _, target := range m.focusables() {
+		if target == m.focus {
+			return
+		}
+	}
+	switch {
+	case m.zoomed:
+		m.focus = m.detailView().main()
+	case m.detailFrom == panelServices:
+		m.focus = m.serviceList
+	default:
+		m.focus = m.tree
+	}
+}
+
 func (m *Model) focusedInput() *lineInput {
-	input, _ := m.focused().(*lineInput)
+	input, _ := m.focus.(*lineInput)
 	return input
 }
 
-// inputChanged tells the view that owns an input its value changed.
+// inputChanged tells whatever owns an input that its value changed.
 func (m *Model) inputChanged(input *lineInput) tea.Cmd {
-	if owner := m.inputOwner(input); owner != nil {
-		return owner.inputChanged(m, input)
+	if input == m.tree.filter {
+		return m.tree.inputChanged(m, input)
 	}
-	return nil
-}
-
-type inputOwner interface {
-	inputChanged(m *Model, input *lineInput) tea.Cmd
-}
-
-func (m *Model) inputOwner(input *lineInput) inputOwner {
-	if m.run.tests.findInput == input {
-		return m.run.tests
-	}
-	for _, v := range m.run.logViews() {
+	for _, v := range m.logViews() {
 		if v.input == input {
-			return v
+			return v.inputChanged(m, input)
 		}
 	}
 	return nil
+}
+
+// logViews are every log, for the filter fields they own.
+func (m *Model) logViews() []*logView {
+	all := []*logView{m.outputView}
+	for _, entry := range m.svcs {
+		switch v := entry.view.(type) {
+		case *logView:
+			all = append(all, v)
+		case *wiremockView:
+			all = append(all, v.log)
+		case *kafkaView:
+			all = append(all, v.log)
+		case *dbView:
+			all = append(all, v.log)
+		}
+	}
+	return all
 }
 
 // mouse
@@ -482,7 +569,10 @@ func (m *Model) View() tea.View {
 	}
 	v := tea.NewView(m.frame)
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeAllMotion
+	v.ReportFocus = true // to hide the cursor again when the terminal comes back
+	if m.prefs.Mouse {
+		v.MouseMode = tea.MouseModeCellMotion
+	}
 	v.BackgroundColor = style.Base
 	v.WindowTitle = m.windowTitle()
 	v.ProgressBar = m.terminalProgress()
@@ -490,7 +580,7 @@ func (m *Model) View() tea.View {
 }
 
 func (m *Model) windowTitle() string {
-	title := "testdash · " + baseName(m.settings.Workdir)
+	title := "testdash · " + baseName(m.opts.Workdir)
 	switch {
 	case m.runStarted.IsZero():
 	case m.runFinished.IsZero():
@@ -505,14 +595,14 @@ func (m *Model) windowTitle() string {
 
 // terminalProgress is the run's progress for terminals that show one in their tab or taskbar.
 func (m *Model) terminalProgress() *tea.ProgressBar {
-	if m.runStarted.IsZero() || !m.runFinished.IsZero() {
+	if !m.running() {
 		return nil
 	}
 	s := m.runSummary()
 	if s.total == 0 {
 		return tea.NewProgressBar(tea.ProgressBarIndeterminate, 0)
 	}
-	value := (s.passed + s.failed + s.skipped) * 100 / s.total
+	value := s.done() * 100 / s.total
 	if s.failed > 0 {
 		return tea.NewProgressBar(tea.ProgressBarError, value)
 	}
@@ -521,28 +611,15 @@ func (m *Model) terminalProgress() *tea.ProgressBar {
 
 func (m *Model) render() string {
 	m.zones = m.zones[:0]
+	if m.width < 50 || m.height < 14 {
+		return style.Muted.Render("testdash needs a terminal of at least 50×14")
+	}
 	runningGlyph = m.spinnerFrame()
 	m.ensureFocus()
-	if m.width < 40 || m.height < 12 {
-		return style.Muted.Render("testdash needs a bigger terminal")
-	}
-	var screen []string
-	if m.screen == pickerScreen {
-		screen = m.picker.render(m)
-	} else {
-		screen = m.run.render(m)
-	}
-	screen = block(screen, m.width, m.height-1)
-	screen = append(screen, m.footer(m.height-1))
-	if m.screen == pickerScreen && m.picker.selectOpen {
-		m.picker.renderDropdown(m, screen)
-	}
-	if m.screen == runScreen {
-		m.run.renderNavTip(m, screen)
-	}
+	screen := m.renderScreen()
 	m.renderToasts(screen)
-	if m.palette != nil {
-		m.palette.render(m, screen)
+	if m.popup != nil {
+		m.popup.render(m, screen)
 	}
 	canvas := style.FgBg(style.Text, style.Base)
 	for i, line := range screen {
@@ -551,7 +628,7 @@ func (m *Model) render() string {
 	return strings.Join(screen, "\n")
 }
 
-// card frames lines in a rounded border on the overlay colour, for toasts, the palette and dropdowns.
+// card frames lines in a rounded border on the overlay colour, for toasts and dialogs.
 func card(lines []string, width int, border ...color.Color) []string {
 	inner := make([]string, len(lines))
 	for i, line := range lines {
@@ -567,16 +644,18 @@ func card(lines []string, width int, border ...color.Color) []string {
 }
 
 func (m *Model) renderToasts(screen []string) {
-	width := min(64, max(30, m.width/2))
-	y := m.height - 1
+	width := min(56, max(30, m.width/2))
+	y := m.height - 2
 	for i := len(m.toasts) - 1; i >= 0; i-- {
 		t := m.toasts[i]
 		color, mark := style.Primary, "●"
 		switch t.severity {
+		case "success":
+			color, mark = style.Pass, ic.passed
 		case "warning":
-			color, mark = style.Warn, "▲"
+			color, mark = style.Warn, ic.warning
 		case "error":
-			color, mark = style.Fail, "✘"
+			color, mark = style.Fail, ic.failed
 		}
 		head := style.New(ansi.NewStyle().Bold().ForegroundColor(color)).Render(mark + " ")
 		var body []string
@@ -584,7 +663,7 @@ func (m *Model) renderToasts(screen []string) {
 		if t.title != "" {
 			body = append(body, head+style.Bold.Render(t.title))
 			for _, line := range message {
-				body = append(body, "  "+line)
+				body = append(body, "  "+style.Muted.Render(line))
 			}
 		} else if len(message) > 0 {
 			body = append(body, head+message[0])
@@ -594,7 +673,7 @@ func (m *Model) renderToasts(screen []string) {
 		}
 		lines := card(body, width, color, lipgloss.Darken(color, 0.5))
 		y -= len(lines)
-		if y < 1 {
+		if y < 2 {
 			break
 		}
 		x := m.width - width - 1
@@ -607,185 +686,7 @@ func (m *Model) renderToasts(screen []string) {
 	}
 }
 
-func (m *Model) dismissToast(id int) {
-	for i, t := range m.toasts {
-		if t.id == id {
-			m.toasts = append(m.toasts[:i], m.toasts[i+1:]...)
-			return
-		}
-	}
-}
-
-// the command palette
-
-type command struct {
-	name, help string
-	run        func() tea.Cmd
-}
-
-type palette struct {
-	input  lineInput
-	cursor int
-	shown  []command
-}
-
-func (m *Model) commands() []command {
-	var all []command
-	for i, v := range m.run.views {
-		id := v.id
-		all = append(all, command{"Show " + v.name, "The " + v.name + " view (" + strconv.Itoa(i+1) + ")", func() tea.Cmd {
-			m.screen = runScreen
-			m.run.showView(m, id, true)
-			return nil
-		}})
-	}
-	return append(all,
-		command{"Pick tests", "The test picker", func() tea.Cmd { m.toPicker(); return nil }},
-		command{"Run selected tests", "Run the picker's selection", func() tea.Cmd { return m.startRun(nil) }},
-		command{"Run failed tests", "Run the tests that failed last time", func() tea.Cmd {
-			return m.startRun(m.failedIDs())
-		}},
-		command{"Stop", "Stop the run (x)", func() tea.Cmd { m.stop(); return nil }},
-		command{"List tests again", "Rediscover the build's tests", m.discover},
-		command{"Toggle simple or full log lines", "Every log (v)", func() tea.Cmd {
-			m.logSimple = !m.logSimple
-			return nil
-		}},
-		command{"Toggle log times", "Every log (t)", func() tea.Cmd { m.logTime = !m.logTime; return nil }},
-		command{"Quit", "Quit testdash", m.quit},
-	)
-}
-
-func (m *Model) openPalette() {
-	m.palette = &palette{input: lineInput{placeholder: "Search for commands…"}}
-	m.palette.filter(m)
-}
-
-func (p *palette) filter(m *Model) {
-	query := strings.ToLower(p.input.Value())
-	type scored struct {
-		c     command
-		score int
-	}
-	var found []scored
-	for _, c := range m.commands() {
-		if score, ok := fuzzy(query, strings.ToLower(c.name)); ok {
-			found = append(found, scored{c, score})
-		}
-	}
-	sort.SliceStable(found, func(i, j int) bool { return found[i].score > found[j].score })
-	p.shown = p.shown[:0]
-	for _, f := range found {
-		p.shown = append(p.shown, f.c)
-	}
-	p.cursor = max(0, min(p.cursor, len(p.shown)-1))
-}
-
-// fuzzy matches query's characters in order in text, scoring runs of adjacent matches and word starts higher.
-func fuzzy(query, text string) (int, bool) {
-	score, last := 0, -2
-	position := 0
-	for _, q := range query {
-		i := strings.IndexRune(text[position:], q)
-		if i < 0 {
-			return 0, false
-		}
-		at := position + i
-		if at == last+1 {
-			score += 3
-		}
-		if at == 0 || text[at-1] == ' ' {
-			score += 2
-		}
-		score++
-		last, position = at, at+len(string(q))
-	}
-	return score, true
-}
-
-func (p *palette) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
-	switch k.String() {
-	case "esc", "ctrl+p":
-		m.palette = nil
-	case "up":
-		p.cursor = max(0, p.cursor-1)
-	case "down":
-		p.cursor = min(len(p.shown)-1, p.cursor+1)
-	case "enter":
-		return p.choose(m, p.cursor)
-	case "ctrl+q", "ctrl+c":
-		return m.quit()
-	default:
-		if handled, changed := p.input.key(k); handled && changed {
-			p.filter(m)
-		}
-	}
-	return nil
-}
-
-func (p *palette) choose(m *Model, i int) tea.Cmd {
-	m.palette = nil
-	if i >= 0 && i < len(p.shown) {
-		return p.shown[i].run()
-	}
-	return nil
-}
-
-func (p *palette) render(m *Model, screen []string) {
-	width := min(80, m.width-4)
-	x := (m.width - width) / 2
-	rows := min(len(p.shown), 12)
-	var content []string
-	content = append(content, style.AccentBold.Render("❯ ")+fit(paletteInput(&p.input), width-6, false))
-	content = append(content, style.LineText.Render(strings.Repeat("─", width-4)))
-	start := max(0, p.cursor-rows+1)
-	for i := start; i < start+rows && i < len(p.shown); i++ {
-		c := p.shown[i]
-		if i == p.cursor {
-			line := style.AccentBold.Render("▌") + style.Bold.Render(c.name) + "  " + style.Muted.Render(c.help)
-			content = append(content, style.WithBg(fit(line, width-4, true), style.Bg(style.Cursor)))
-		} else {
-			content = append(content, " "+style.Bold.Render(c.name)+"  "+style.Dim.Render(c.help))
-		}
-	}
-	if len(p.shown) == 0 {
-		content = append(content, style.Dim.Render(" No matching commands"))
-	}
-	framed := card(content, width, style.Accent...)
-	overlay(framed, []string{style.BoldPill("Commands", style.Base, style.Primary)}, 2, 0)
-	m.addZone(zone{r: rect{0, 0, m.width, m.height}, click: func(int, int) tea.Cmd {
-		m.palette = nil
-		return nil
-	}})
-	overlay(screen, framed, x, 2)
-	m.addZone(zone{r: rect{x, 2, width, len(framed)}, click: func(_, y int) tea.Cmd {
-		if i := start + y - 3; y >= 3 && i < len(p.shown) {
-			return p.choose(m, i)
-		}
-		return nil
-	}})
-}
-
-func paletteInput(in *lineInput) string {
-	if len(in.value) == 0 {
-		return ansi.NewStyle().Reverse(true).Styled(" ") + style.Dim.Render(in.placeholder)
-	}
-	before := string(in.value[:in.cursor])
-	after := string(in.value[in.cursor:])
-	caret := " "
-	if after != "" {
-		caret, after = string([]rune(after)[0]), string([]rune(after)[1:])
-	}
-	return style.Bold.Render(before) + ansi.NewStyle().ForegroundColor(style.Base).BackgroundColor(style.Primary).Styled(caret) +
-		style.Bold.Render(after)
-}
-
-func (m *Model) toPicker() {
-	m.screen = pickerScreen
-	m.picker.resume(m)
-}
-
 func baseName(path string) string {
-	path = strings.TrimRight(path, string(os.PathSeparator))
-	return path[strings.LastIndex(path, string(os.PathSeparator))+1:]
+	path = strings.TrimRight(path, "/")
+	return path[strings.LastIndex(path, "/")+1:]
 }

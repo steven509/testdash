@@ -54,34 +54,37 @@ func (t *tabbedView) step(by int) {
 	t.active = (t.active + by + len(t.tabIDs)) % len(t.tabIDs)
 }
 
-// frame draws the info line, the hint and the tabs, and returns the area left for the active pane.
-func (t *tabbedView) frame(m *Model, r rect, info, hint string, onTab func()) ([]string, rect) {
-	out := []string{bar(info, r.w, style.FgBg(style.MutedText, style.Surface))}
-	tabLine, spans := tabs(t.tabLabels, t.active, r.w-1)
+// tabLine draws the view's tabs, with what the view holds on the right, and returns the area left for the
+// active pane.
+func (t *tabbedView) tabLine(m *Model, r rect, meta string, onTab func()) ([]string, rect) {
+	tabLine, spans := tabs(t.tabLabels, t.active, r.w)
 	for i, span := range spans {
 		index := i
-		m.addZone(zone{r: rect{r.x + 1 + span[0], r.y + len(out), span[1] - span[0], 1}, click: func(int, int) tea.Cmd {
+		m.addZone(zone{r: rect{r.x + span[0], r.y, span[1] - span[0], 1}, click: func(int, int) tea.Cmd {
 			t.active = index
 			onTab()
 			return nil
 		}})
 	}
-	out = append(out, " "+tabLine)
-	for _, line := range wrapLines(hint, r.w-2) {
-		out = append(out, " "+style.Dim.Render(line))
+	used := spans[len(spans)-1][1] + 1
+	line := tabLine
+	if room := r.w - used; room > 8 {
+		meta = ansi.Truncate(meta, room, "…")
+		line = fit(ansi.Truncate(tabLine, used, ""), r.w-ansi.StringWidth(meta), false) + meta
 	}
+	out := []string{line, ""}
 	return out, rect{r.x, r.y + len(out), r.w, max(0, r.h-len(out))}
 }
 
 // tablePane draws a table with the details of its cursor row on the right, or the table alone.
 func tablePane(m *Model, r rect, t *table, detail *textbox) []string {
 	if detail == nil {
-		lines := t.view(r.w, r.h, m.focused() == t)
+		lines := t.view(r.w, r.h, m.focus == t)
 		m.addZone(tableZone(m, r, t))
 		return lines
 	}
 	widths := splitWidth(r.w, 3, 2)
-	left := t.view(widths[0], r.h, m.focused() == t)
+	left := t.view(widths[0], r.h, m.focus == t)
 	m.addZone(tableZone(m, rect{r.x, r.y, widths[0], r.h}, t))
 	right := leftBorder(padded(detail.view(widths[1]-3, r.h), widths[1]-1, r.h, 1, 1))
 	m.addZone(zone{r: rect{r.x + widths[0], r.y, widths[1], r.h}, click: func(int, int) tea.Cmd {
@@ -117,17 +120,17 @@ func detailLevel(b *textbox) level {
 
 func tabBindings(t *tabbedView, onTab func()) []binding {
 	return []binding{
-		bind("left", "Tab", func() tea.Cmd { t.step(-1); onTab(); return nil }).hidden().first(),
-		bind("right", "Switch tab", func() tea.Cmd { t.step(1); onTab(); return nil }).shown("← →").first(),
+		bind("[ left", "Tab", func() tea.Cmd { t.step(-1); onTab(); return nil }).hidden().first(),
+		bind("] right", "Next tab", func() tea.Cmd { t.step(1); onTab(); return nil }).shown("[ ]").first(),
 	}
 }
 
-// modePills shows what a view is narrowed to, a pill for each.
-func modePills(modes ...string) string {
+// modeChips show what a view is narrowed to, a chip for each.
+func modeChips(modes ...string) string {
 	var b strings.Builder
 	for _, mode := range modes {
 		if mode != "" {
-			b.WriteString("  " + style.Pill(mode, style.Warn, style.Tint(style.Warn)))
+			b.WriteString("  " + chip(mode))
 		}
 	}
 	return b.String()
@@ -156,8 +159,6 @@ type wiremockView struct {
 	reset         chan struct{}
 }
 
-const wiremockHint = "←/→ switch tab   ↑/↓ choose a row, its details show on the right   u unmatched only   Esc back"
-
 type wiremockPoll struct {
 	events     []wiremock.ServeEvent
 	nearMisses []wiremock.NearMiss
@@ -173,7 +174,7 @@ func newWiremockView(m *Model, entry *svcEntry, info func() string) *wiremockVie
 		misses:    newTable("Time", "Method", "URL", "Closest stub"),
 		stubTable: newTable("Stub", "Method", "URL", "Status", "Priority"),
 		details:   [3]*textbox{{}, {}, {}},
-		log:       newLogView(func() []*logformat.Line { return entry.lines.all() }, func() string { return "" }, ""),
+		log:       newLogView(func() []*logformat.Line { return entry.lines.all() }, info),
 		reset:     make(chan struct{}, 1)}
 	v.tabbedView = tabbedView{tabIDs: []string{"requests", "near-misses", "stubs", "log"},
 		tabLabels: []string{"Requests", "Unmatched", "Stubs", "Log"}}
@@ -239,8 +240,11 @@ func (v *wiremockView) poll(ctx context.Context, send func(tea.Msg)) {
 }
 
 func (v *wiremockView) polled(m *Model, p wiremockPoll) {
-	if p.hasEvents {
-		v.events = p.events
+	if p.hasEvents { // WireMock lists the newest first; the views list everything oldest first
+		v.events = make([]wiremock.ServeEvent, len(p.events))
+		for i, e := range p.events {
+			v.events[len(p.events)-1-i] = e
+		}
 	}
 	if p.hasMisses {
 		v.nearMisses = p.nearMisses
@@ -303,9 +307,9 @@ func (v *wiremockView) render(m *Model, r rect) []string {
 	if v.unmatchedOnly {
 		unmatched = "unmatched only"
 	}
-	info := v.info() + "  " + style.Muted.Render(v.summary()) + modePills(windowLabel, unmatched)
+	meta := style.Muted.Render(v.summary()) + modeChips(windowLabel, unmatched)
 	onTab := func() { m.setFocus(v.main()) }
-	out, pane := v.frame(m, r, info, wiremockHint, onTab)
+	out, pane := v.tabLine(m, r, meta, onTab)
 	if v.activeID() == "log" {
 		return append(out, v.log.render(m, pane)...)
 	}
@@ -365,6 +369,7 @@ func (v *wiremockView) append(m *Model, lines []*logformat.Line) {
 
 func (v *wiremockView) fillRequests() {
 	cursor := v.requests.cursor
+	following := len(v.requests.rows) == 0 || cursor >= len(v.requests.rows)-1
 	v.requests.clear()
 	for _, e := range v.events {
 		if (v.unmatchedOnly && e.Matched) || !v.window.holds(e.At) {
@@ -387,6 +392,17 @@ func (v *wiremockView) fillRequests() {
 		v.raw[key] = describeRequest(e, nil)
 	}
 	v.requests.cursor = cursor
+	if following {
+		v.requests.moveCursor(len(v.requests.rows) - 1)
+	}
+}
+
+// latest moves to the newest requests, misses and stubs.
+func (v *wiremockView) latest() {
+	for _, t := range []*table{v.requests, v.misses, v.stubTable} {
+		t.moveCursor(len(t.rows) - 1)
+	}
+	v.log.latest()
 }
 
 // fillNearMisses lists every request no stub matched, with the closest stub when WireMock reports one.
@@ -537,26 +553,25 @@ func styleEachLine(text string) string {
 // and the container's log.
 type kafkaView struct {
 	tabbedView
-	entry    *svcEntry
-	client   *kafka.Client
-	info     func() string
-	messages []kafka.Message
-	groups   []kafka.GroupLag
-	topics   []string
-	topic    string
-	window   *window
-	seen     map[string]bool
-	byKey    map[string]kafka.Message
-	table    *table
-	detail   *textbox
-	topicTab *table
-	groupTab *table
-	log      *logView
-	showing  atomic.Bool
-	reset    chan struct{}
+	entry       *svcEntry
+	client      *kafka.Client
+	info        func() string
+	messages    []kafka.Message
+	groups      []kafka.GroupLag
+	topics      []string
+	topic       string
+	window      *window
+	seen        map[string]bool
+	byKey       map[string]kafka.Message
+	table       *table
+	detail      *textbox
+	topicTab    *table
+	groupTab    *table
+	log         *logView
+	showHeaders bool // the selected message's details show its headers rather than its value
+	showing     atomic.Bool
+	reset       chan struct{}
 }
-
-const kafkaHint = "←/→ switch tab   ↑/↓ choose a row, its details show on the right   Enter on a topic shows its messages"
 
 func newKafkaView(m *Model, entry *svcEntry, info func() string) *kafkaView {
 	v := &kafkaView{entry: entry, client: kafka.New(entry.svc), info: info, seen: map[string]bool{},
@@ -565,7 +580,7 @@ func newKafkaView(m *Model, entry *svcEntry, info func() string) *kafkaView {
 		detail:   &textbox{},
 		topicTab: newTable("Topic", "Messages", "Last", "Lag"),
 		groupTab: newTable("Group", "Topic", "Partition", "Offset", "End", "Lag", "Consumer"),
-		log:      newLogView(func() []*logformat.Line { return entry.lines.all() }, func() string { return "" }, ""),
+		log:      newLogView(func() []*logformat.Line { return entry.lines.all() }, info),
 		reset:    make(chan struct{}, 1)}
 	v.tabbedView = tabbedView{tabIDs: []string{"messages", "topics", "groups", "log"},
 		tabLabels: []string{"Messages", "Topics", "Groups", "Log"}}
@@ -660,6 +675,57 @@ func (v *kafkaView) addRows(messages []kafka.Message) {
 	if len(v.table.rows) > 0 && following {
 		v.table.moveCursor(len(v.table.rows) - 1)
 	}
+}
+
+// latest moves to the newest message.
+func (v *kafkaView) latest() {
+	v.table.moveCursor(len(v.table.rows) - 1)
+	v.log.latest()
+}
+
+// messagesPane is the messages, and beside them the selected one's value or headers.
+func (v *kafkaView) messagesPane(m *Model, r rect) []string {
+	widths := splitWidth(r.w, 3, 2)
+	left := v.table.view(widths[0], r.h, m.focus == v.table)
+	m.addZone(tableZone(m, rect{r.x, r.y, widths[0], r.h}, v.table))
+	inner := widths[1] - 3
+	key := v.table.cursorKey()
+	message, ok := v.byKey[key]
+	headers := "Headers"
+	if ok {
+		headers = fmt.Sprintf("Headers %d", len(message.Headers))
+	}
+	active := 0
+	if v.showHeaders {
+		active = 1
+	}
+	tabLine, spans := tabs([]string{"Value", headers}, active, inner)
+	for i, span := range spans {
+		show := i == 1
+		m.addZone(zone{r: rect{r.x + widths[0] + 2 + span[0], r.y, span[1] - span[0], 1}, click: func(int, int) tea.Cmd {
+			v.showHeaders = show
+			return nil
+		}})
+	}
+	switch {
+	case !ok:
+		v.detail.set("", "")
+	case v.showHeaders:
+		v.detail.set(key+"/headers", messageHeading(message)+"\n"+messageHeaders(message, inner))
+	default:
+		v.detail.set(key+"/value", messageHeading(message)+"\n"+messageValue(message))
+	}
+	body := append([]string{tabLine, ""}, v.detail.view(inner, max(0, r.h-2))...)
+	right := leftBorder(padded(body, widths[1]-1, r.h, 1, 1))
+	m.addZone(zone{r: rect{r.x + widths[0], r.y + 2, widths[1], max(0, r.h-2)}, click: func(int, int) tea.Cmd {
+		m.setFocus(v.detail)
+		return nil
+	}, wheel: v.detail.scroll})
+	return hjoin(left, right)
+}
+
+func messageKey(message kafka.Message) string {
+	return fmt.Sprintf("%s:%d:%d", message.Topic, message.Partition, message.Offset)
 }
 
 func (v *kafkaView) fillTopics() {
@@ -774,7 +840,7 @@ func (v *kafkaView) summary() string {
 	for _, message := range v.messages {
 		topics[message.Topic] = true
 	}
-	return fmt.Sprintf("%d messages on %d topics", len(v.messages), len(topics))
+	return count(len(v.messages), "message") + " on " + count(len(topics), "topic")
 }
 
 func (v *kafkaView) render(m *Model, r rect) []string {
@@ -785,21 +851,15 @@ func (v *kafkaView) render(m *Model, r rect) []string {
 	if v.window != nil {
 		windowLabel = v.window.label
 	}
-	v.showing.Store(m.screen == runScreen && m.run.current == v.entry.viewID &&
+	v.showing.Store(m.detailFrom == panelServices && m.serviceList.selected(m) == v.entry &&
 		(v.activeID() == "topics" || v.activeID() == "groups"))
-	info := v.info() + "  " + style.Muted.Render(v.summary()) + modePills(topic, windowLabel)
-	out, pane := v.frame(m, r, info, kafkaHint, func() { m.setFocus(v.main()) })
+	meta := style.Muted.Render(v.summary()) + modeChips(topic, windowLabel)
+	out, pane := v.tabLine(m, r, meta, func() { m.setFocus(v.main()) })
 	switch v.activeID() {
 	case "log":
 		return append(out, v.log.render(m, pane)...)
 	case "messages":
-		key := v.table.cursorKey()
-		if message, ok := v.byKey[key]; ok {
-			v.detail.set(key, describeMessage(message))
-		} else {
-			v.detail.set("", "")
-		}
-		return append(out, tablePane(m, pane, v.table, v.detail)...)
+		return append(out, v.messagesPane(m, pane)...)
 	case "topics":
 		return append(out, tablePane(m, pane, v.topicTab, nil)...)
 	}
@@ -814,6 +874,10 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 			v.filtered(m)
 			return nil
 		}).when(func() bool { return v.topic != "" || v.window != nil }),
+		bind("h", map[bool]string{false: "Headers", true: "Value"}[v.showHeaders], func() tea.Cmd {
+			v.showHeaders = !v.showHeaders
+			return nil
+		}).when(func() bool { return v.activeID() == "messages" }),
 	)}
 	switch v.activeID() {
 	case "log":
@@ -876,7 +940,17 @@ func (v *kafkaView) messagesBetween(w *window) []kafka.Message {
 	return found
 }
 
+// describeMessage is a message's topic, place, time, key and value, then its headers, for a test's timeline.
 func describeMessage(message kafka.Message) string {
+	text := messageHeading(message) + "\n" + messageValue(message)
+	if len(message.Headers) > 0 {
+		text += "\n\n" + section("Headers", 72, fmt.Sprint(len(message.Headers))) + "\n" + messageHeaders(message, 72)
+	}
+	return text
+}
+
+// messageHeading is where a message is and when it was written, and its key.
+func messageHeading(message kafka.Message) string {
 	var b strings.Builder
 	b.WriteString(style.Bold.Render(cleanText(message.Topic)))
 	b.WriteString(style.Dim.Render(fmt.Sprintf("  partition %d, offset %d", message.Partition, message.Offset)) + "\n")
@@ -885,22 +959,56 @@ func describeMessage(message kafka.Message) string {
 	if message.Key != nil {
 		b.WriteString(cleanText(*message.Key) + "\n")
 	} else {
-		b.WriteString("null\n")
-	}
-	for _, header := range message.Headers {
-		value := "None"
-		if header.Value != nil {
-			value = *header.Value
-		}
-		b.WriteString(style.Dim.Render(cleanText(header.Name+": "+value)) + "\n")
-	}
-	b.WriteString("\n")
-	if message.Value != nil {
-		b.WriteString(styleLines(cleanBlock(jsonx.Pretty(*message.Value)), style.Cyan))
-	} else {
-		b.WriteString(style.Cyan.Render("null"))
+		b.WriteString(style.Dim.Render("null") + "\n")
 	}
 	return b.String()
+}
+
+func messageValue(message kafka.Message) string {
+	if message.Value == nil {
+		return style.Cyan.Render("null")
+	}
+	return styleLines(cleanBlock(jsonx.Pretty(*message.Value)), style.Cyan)
+}
+
+// messageHeaders lists a message's headers, names lined up, a JSON value indented below its name.
+func messageHeaders(message kafka.Message, width int) string {
+	if len(message.Headers) == 0 {
+		return style.Dim.Render("No headers")
+	}
+	nameWidth := 0
+	for _, header := range message.Headers {
+		nameWidth = max(nameWidth, min(28, len([]rune(cleanText(header.Name)))))
+	}
+	var b strings.Builder
+	for _, header := range message.Headers {
+		name := style.Muted.Render(fit(cleanText(header.Name), nameWidth, true))
+		switch {
+		case header.Value == nil:
+			b.WriteString(name + "  " + style.Dim.Render("null") + "\n")
+		case jsonValue(*header.Value):
+			b.WriteString(name + "\n" + styleLines(indent(cleanBlock(jsonx.Pretty(*header.Value)), "  "), style.Cyan) + "\n")
+		case nameWidth+2+len([]rune(cleanText(*header.Value))) > width: // too long to sit beside its name
+			value := cleanText(*header.Value)
+			wrapped := strings.Join(wrapLines(value, width-2), "\n")
+			if !strings.Contains(value, " ") { // an id or a trace: cut at the edge, not at its hyphens
+				wrapped = ansi.Hardwrap(value, width-2, true)
+			}
+			b.WriteString(name + "\n" + indent(wrapped, "  ") + "\n")
+		default:
+			b.WriteString(name + "  " + cleanText(*header.Value) + "\n")
+		}
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+func jsonValue(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) && json.Valid([]byte(trimmed))
+}
+
+func indent(text, by string) string {
+	return by + strings.ReplaceAll(text, "\n", "\n"+by)
 }
 
 // databases
@@ -914,6 +1022,7 @@ type dbView struct {
 	queries   []databases.Query
 	window    *window
 	showNoise bool
+	chatter   int // how many of the queries are session chatter
 	byKey     map[string]databases.Query
 	table     *table
 	detail    *textbox
@@ -921,12 +1030,10 @@ type dbView struct {
 	mongo     bool
 }
 
-const dbHint = "←/→ switch tab   ↑/↓ choose a query, all of it shows on the right"
-
 func newDBView(m *Model, entry *svcEntry, info func() string) *dbView {
 	v := &dbView{entry: entry, client: databases.ForService(entry.svc), info: info, byKey: map[string]databases.Query{},
 		detail: &textbox{}, mongo: entry.svc.Kind == "mongodb",
-		log: newLogView(func() []*logformat.Line { return entry.lines.all() }, func() string { return "" }, "")}
+		log: newLogView(func() []*logformat.Line { return entry.lines.all() }, info)}
 	if v.mongo {
 		v.table = newTable("Time", "Op", "Collection", "ms", "Command")
 	} else {
@@ -942,8 +1049,19 @@ func newDBView(m *Model, entry *svcEntry, info func() string) *dbView {
 
 func (v *dbView) received(m *Model, batch []databases.Query) {
 	v.queries = append(v.queries, batch...)
+	for _, q := range batch {
+		if q.Noise() {
+			v.chatter++
+		}
+	}
 	if len(v.queries) > maxQueries {
 		v.queries = append([]databases.Query(nil), v.queries[len(v.queries)-maxQueries:]...)
+		v.chatter = 0
+		for _, q := range v.queries {
+			if q.Noise() {
+				v.chatter++
+			}
+		}
 		v.fillQueries()
 	} else {
 		v.addRows(batch)
@@ -988,6 +1106,22 @@ func (v *dbView) addRows(queries []databases.Query) {
 	}
 }
 
+// latest moves to the newest query.
+func (v *dbView) latest() {
+	v.table.moveCursor(len(v.table.rows) - 1)
+	v.log.latest()
+}
+
+// selectQuery moves the cursor to a query's row.
+func (v *dbView) selectQuery(q databases.Query) {
+	for key, shown := range v.byKey {
+		if shown.At.Equal(q.At) && shown.Text == q.Text && shown.Connection == q.Connection {
+			v.table.selectKey(key)
+			return
+		}
+	}
+}
+
 func (v *dbView) main() any {
 	if v.activeID() == "log" {
 		return v.log
@@ -1006,15 +1140,9 @@ func (v *dbView) summary() string {
 	if v.client != nil && v.client.Error() != "" {
 		return "cannot read queries: " + cleanText(v.client.Error())
 	}
-	chatter := 0
-	for _, q := range v.queries {
-		if q.Noise() {
-			chatter++
-		}
-	}
-	text := fmt.Sprintf("%d queries", len(v.queries)-chatter)
-	if chatter > 0 {
-		text += fmt.Sprintf(", %d session chatter", chatter)
+	text := fmt.Sprintf("%d queries", len(v.queries)-v.chatter)
+	if v.chatter > 0 {
+		text += fmt.Sprintf(", %d session chatter", v.chatter)
 	}
 	return text
 }
@@ -1027,12 +1155,8 @@ func (v *dbView) render(m *Model, r rect) []string {
 	if v.showNoise {
 		noise = "with session chatter"
 	}
-	info := v.info() + "  " + style.Muted.Render(v.summary()) + modePills(windowLabel, noise)
-	hint := dbHint
-	if !v.mongo {
-		hint += "   n session chatter (SET, SHOW, connects)"
-	}
-	out, pane := v.frame(m, r, info, hint, func() { m.setFocus(v.main()) })
+	meta := style.Muted.Render(v.summary()) + modeChips(windowLabel, noise)
+	out, pane := v.tabLine(m, r, meta, func() { m.setFocus(v.main()) })
 	if v.activeID() == "log" {
 		return append(out, v.log.render(m, pane)...)
 	}
@@ -1074,7 +1198,7 @@ func (v *dbView) setWindow(m *Model, w *window) {
 }
 
 func (v *dbView) clear() {
-	v.queries, v.byKey = nil, map[string]databases.Query{}
+	v.queries, v.byKey, v.chatter = nil, map[string]databases.Query{}, 0
 	v.fillQueries()
 	v.detail.set("", "")
 	v.log.clear()

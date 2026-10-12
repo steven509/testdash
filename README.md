@@ -8,29 +8,44 @@ testdash is a single Go binary built with [Bubble Tea](https://github.com/charmb
 [Lip Gloss](https://github.com/charmbracelet/lipgloss). It paints its own dark theme, so it looks the same in
 any terminal, and shows a run's progress in the terminal's tab or taskbar where the terminal supports it.
 
-## The screens
+## The screen
 
-**Picker.** The tests of a Gradle test task, by class, including `@Nested` classes and parameterised tests.
-Type to filter them, select some (or none, to run them all), press Enter to reach the Run button and Enter
-again to run them. Results from the last run show next to each test, and `ctrl+f` selects the ones that failed.
+One screen, in three panels, with the run along the top.
 
-**Run screen.** A sidebar of views down the left: the overview, the tests, the application (★) and every other
-service the run started, and the Gradle output. On the right of each: a green ● for a running container, a dim
-■ for a stopped one, ⚠ and the number of warnings and errors it logged, a spinner while Gradle runs, and the
-tests' counts. Hovering over one says the same in words. The overview shows the tests (progress, the test
-running, failures with their message), WireMock (requests, the unmatched ones grouped by endpoint, the most
-requested endpoints), Kafka (the busiest topics and the latest messages) and a large log with a tab per service,
-the application's first.
+**The header** says what you are testing and how the run is going: the test running now, the counts so far,
+and a badge (ready, running, passed or failed). A line under it fills as tests finish, green while all is well
+and red once one fails. Click the task to choose another.
 
-**Full views.** The tests with each one's duration and failure, plus the WireMock requests, Kafka messages and
-application warnings from while it ran; `l`, `w`, `k` and `d` open the application's log, WireMock's requests,
-Kafka's messages or the databases' queries from just that time, and Enter runs the test (or class) again. A log
-with filter, follow and errors-only. WireMock with every request and whether a stub matched, the unmatched
-requests with their closest stub, the stubs, and its log. Kafka with every message on every topic (Enter on a
-topic shows only its), the topics, each consumer group's lag, and its log. MariaDB, MySQL and MongoDB with every
-query they were asked (a connection pool's `SET`s and `SHOW`s hidden until `n`), and their log. Every view but
-the overview has a status bar of two lines: the test running (its method, its display name when it has one, and
-the classes it is nested in, `Outer › Inner`), then how many passed, failed, were skipped and are left.
+**1 · Tests** is the task's tests by class, including `@Nested` classes and parameterised tests, each with its
+result and time from the last run. The first row, *All tests*, is the run as a whole. `space` selects a test or
+a class (`●` marks what is selected, `◐` a class partly selected), and `enter` or `r` runs the selection. With nothing selected, `enter` runs the
+test or class under the cursor and `r` runs everything. `/` filters by name (case, spaces and punctuation ignored) and `s` shows
+only the failed or unfinished tests.
+
+**2 · Services** is Gradle's output and every container the run started: the application (★) first, then
+WireMock, Kafka, databases and the rest, each with a word on what it has seen (warnings, requests, messages,
+queries) and a dot for whether it runs.
+
+**3 · Details** shows whatever is selected in the panel you were last in:
+
+- *All tests*: the run's dashboard: its results, what is running now, the failures with their messages, a
+  sparkline for each source (tests finishing, Gradle, each log, requests, messages, queries) over the run,
+  every class on the run's time line (its setup a thin line, then each test coloured by how it did), and while
+  it runs, a live feed of the newest from the build and the services. Once it is done, the slowest tests.
+  Before the first run, the keys that get you started.
+- *A class*: its results and its tests' times as bars.
+- *A test*: its result, its failure with the stack trace (your own frames bright, library frames folded), and
+  **what happened during it**: every HTTP request WireMock received, Kafka message, SQL or MongoDB query, and
+  warning or error the application logged while it ran, in time order. Select one to see all of it below;
+  `enter` opens it in its service's view, narrowed to the test's time.
+- *Gradle or a service*: its log, or WireMock's requests (with the closest stub for each unmatched one), stubs
+  and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's queries and log.
+
+`tab` moves between the panels, and `1`, `2` and `3` go straight to one. `z` gives the details the whole width,
+and on a narrow terminal the lists and the details take turns. Esc goes back: it clears a filter or a test's
+time first. The mouse works everywhere: click a row, a panel, a tab, the task or a footer key, and scroll with
+the wheel. In the tests, a click on a row's mark selects it, a click on a caret (or a second click on a class)
+opens or closes it. `?` lists every key and `ctrl+p` (or `:`) finds any command.
 
 **Logs** are simplified: each line shows its level and message, without the timestamp, process id, thread and
 logger, and stack traces sit indented under the line that logged them. MDC values a pattern puts before the
@@ -42,22 +57,30 @@ line that starts with a timestamp. Lines in other formats are shown as they are.
 you scroll up; End or `f` follows again.
 
 When the run cannot start its containers because a port is taken, as when another run of the same Compose
-file is up, the overview and status bar say which container (or process) holds the port.
-
-Esc goes back: from a full view to the overview, from the overview to the picker. It first clears a filter or a
-test's time. A run carries on while you look around. The mouse works too: click a view, a panel, a tab, a row
-or a footer key, and scroll with the wheel.
+file is up, the dashboard says which container (or process) holds the port.
 
 | Where | Keys |
 |---|---|
-| Picker | type to filter (case, spaces and punctuation ignored; Esc clears) · ↑/↓ move · ←/→ collapse/expand · space select (under a filter, only matching tests) · `ctrl+a` all/none · `ctrl+f` last run's failures · `ctrl+t` task (choosing one, or Esc, goes back to the tests) · Enter → Run button → run · while a run goes on, Esc watches it and `ctrl+x` stops it |
-| Run screen | ↑/↓ in the sidebar or `1`–`9` switch views · Tab moves between sidebar and panels · Enter opens a panel · `[` `]` switch the overview's log · `r` run again · `F` run the failures · `x` stop (twice kills) · `p` or Esc (on the overview) picker · `:` jump · `q` quit |
-| Tests view | `/` find · `s` show all, failed or not passed · Enter run this test or class again · `l` its log · `w` its WireMock requests · `k` its Kafka messages · `d` its database queries |
-| Log views | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · ←/→ scroll sideways · Home/End · Esc back |
-| WireMock | ←/→ Requests, Unmatched, Stubs, Log · ↑/↓ a row, details on the right · `u` unmatched only |
-| Kafka | ←/→ Messages, Topics, Groups, Log · ↑/↓ a row, details on the right · Enter on a topic shows its messages |
-| Databases | ←/→ Queries, Log · ↑/↓ a query, all of it on the right · `n` session chatter |
-| Anywhere | `ctrl+p` command palette · `ctrl+q` or `ctrl+c` quit |
+| Anywhere | `tab` next panel · `1` `2` `3` tests, services, details · `r` run the selection, or all · `F` run the failed tests · `x` stop (twice kills) · `z` zoom the details · `c` the run's whole command · `ctrl+t` test task · `ctrl+p` or `:` commands · `ctrl+s` settings · `?` keys · `q` quit, after asking |
+| Tests | ↑/↓ move · ←/→ collapse, expand · `space` select · `a` select all shown · `u` unselect the tests that passed · `enter` run the selection, or with none, this test or class · `/` filter · `s` all, failed or not passed · Esc clears the filter, then the selection |
+| A test's details | ↑/↓ the events while it ran · `enter` open the event in its service · `tab` the event, the stack trace · Esc back |
+| Logs | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · ←/→ scroll sideways · Home/End |
+| Services | `[` `]` or ←/→ tabs · ↑/↓ a row, its details beside it · WireMock `u` unmatched only · Kafka `h` a message's headers or value, `enter` on a topic shows its messages · databases `n` session chatter |
+
+## Settings
+
+`testdash --settings` opens the settings on their own screen, and `ctrl+s` opens them inside testdash, where
+changes apply at once. Each change is saved to `~/.config/testdash/settings.json` (or under
+`$XDG_CONFIG_HOME`).
+
+| Setting | |
+|---|---|
+| Icons | Unicode, or [Nerd Font](https://www.nerdfonts.com) glyphs for the carets, statuses and services, chosen to sit at the size of the text. A Nerd Font must be your terminal's font. |
+| Accent | The colour of focus and selection: Violet, Ocean, Sunset or Rose. |
+| Mouse | Off leaves the mouse to the terminal, to select and copy text. |
+| Log lines, times, wrapping | How logs start: simplified or as logged, with or without times, wrapped or not. |
+| Test output | Whether tests' own output also goes into Gradle's output (as `--show-test-output`). |
+| Containers | The run's containers, or every container on the machine (as `--all-containers`). |
 
 ## Use
 
@@ -71,16 +94,21 @@ It needs Docker for the service views, and Gradle builds need a JDK (`JAVA_HOME`
 the JUnit listener once.
 
 ```sh
-testdash                             # in a Gradle repo: pick from its test tasks
-testdash --task :app:blackBoxTest    # start on a task
-testdash --info                      # arguments testdash does not know are passed to Gradle
-testdash -- npm test                 # any other command: no test list, the service views still work
+testdash                                   # in a Gradle repo: pick from its tests
+testdash --task :app:blackBoxTest          # start on a task
+testdash :app:test --tests '*OrderApiTest' # run these at once, as gradlew would
+testdash --info                            # arguments testdash does not know are passed to Gradle
+testdash -- npm test                       # any other command: no test list, the service views still work
 ```
 
-`--show-test-output` keeps test stdout in the Output view (by default the service views show it), and
-`--all-containers` follows every container on the machine rather than only the run's. With a
-[Nerd Font](https://www.nerdfonts.com) in the terminal, `TESTDASH_NERD_FONT=1` draws the tree's carets as
-chevrons; other fonts have no centred down caret, so they get ▸ and ▾.
+A task path and Gradle's `--tests` filters (as many as you like, with `*` wildcards, a class or a class and
+method, the package left out when the pattern starts with a capital) skip picking: the run starts at once, and
+the tests it matches are selected, so `r` runs them again. When the tests have not been listed yet, testdash
+lists them first.
+
+`--show-test-output` keeps test stdout in Gradle's output (by default the service views show it), and
+`--all-containers` follows every container on the machine rather than only the run's; both are settings too.
+`testdash --settings` changes the settings.
 
 A `.testdash.json` at the repo root (found from the current directory up to the git root) is optional:
 
@@ -141,7 +169,11 @@ go test ./...    # the parsers are checked against what the Python version made 
 go vet ./...
 ```
 
+`TESTDASH_DEMO=<dir> go test ./internal/ui -run TestDemoScreens` writes the main screens, with made-up services,
+to `<dir>` as text with their colours, to look at a change to the UI without Docker.
+
 The packages under `internal/` follow the work: `catalog` (the test tree and its cache), `gradle` (the init script
 and listener), `progress`, `runner`, `services` (the Docker watcher), `logformat`, `wiremock`, `kafka`,
-`databases`, and `ui`, the Bubble Tea model. Everything the screens show lives on the model and changes only in
-`Update`; the work that waits runs in goroutines that send their results in as messages.
+`databases`, `settings`, `style` (the theme), and `ui`, the Bubble Tea model. Everything the screen shows lives
+on the model and changes only in `Update`; the work that waits runs in goroutines that send their results in as
+messages.

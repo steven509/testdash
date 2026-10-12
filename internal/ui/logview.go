@@ -8,7 +8,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"testdash/internal/logformat"
-	"testdash/internal/style"
 )
 
 const maxLogRows = 20_000
@@ -45,7 +44,7 @@ type logView struct {
 	height     int
 }
 
-func newLogView(source func() []*logformat.Line, info func() string, _ string) *logView {
+func newLogView(source func() []*logformat.Line, info func() string) *logView {
 	return &logView{source: source, info: info, follow: true,
 		input: &lineInput{placeholder: "filter (regex), Enter keeps it, Esc clears it"}}
 }
@@ -118,6 +117,11 @@ func (v *logView) rerender(m *Model) {
 	v.top = min(v.top, max(0, len(v.rows)-1))
 }
 
+// latest follows the end of the log again.
+func (v *logView) latest() {
+	v.follow = true
+}
+
 func (v *logView) setWindow(m *Model, w *window) {
 	v.window = w
 	v.rerender(m)
@@ -127,7 +131,7 @@ func (v *logView) setWindow(m *Model, w *window) {
 }
 
 func (v *logView) modes(m *Model) string {
-	return modePills(v.modeNames(m)...)
+	return modeChips(v.modeNames(m)...)
 }
 
 func (v *logView) modeNames(m *Model) []string {
@@ -246,10 +250,10 @@ func (v *logView) render(m *Model, r rect) []string {
 	if v.styleShown != styleKey(m) { // toggled in another log while this one was hidden
 		v.rerender(m)
 	}
-	out := []string{bar(v.info()+v.modes(m), r.w, style.FgBg(style.MutedText, style.Surface))}
+	out := []string{fit(v.info()+v.modes(m), r.w, true)}
 	y := r.y + 1
 	if v.inputShown {
-		out = append(out, v.input.view(r.w, m.focused() == v.input))
+		out = append(out, v.input.view(r.w, m.focus == v.input))
 		input := v.input
 		m.addZone(zone{r: rect{r.x, y, r.w, 1}, click: func(int, int) tea.Cmd { m.setFocus(input); return nil }})
 		y++

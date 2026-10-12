@@ -1,9 +1,11 @@
 // testdash: pick tests, run them, and follow the results and every service the run starts.
 //
-//	testdash [--task TASK] [--config FILE] [--show-test-output] [--all-containers] [ARG...] [-- COMMAND...]
+//	testdash [--task TASK] [--config FILE] [--show-test-output] [--all-containers] [TASK...] [--tests PATTERN...] [ARG...] [-- COMMAND...]
+//	testdash --settings
 //
 // In a Gradle build it lists every test task's tests (JUnit discovery, no build change) and runs the ones you
-// pick; ARGs are added to the Gradle command. Everything after `--` replaces the command. The containers the run
+// pick. Given a task path or Gradle's --tests filters, as gradlew takes them, it runs those tests at once. Other
+// ARGs are added to the Gradle command. Everything after `--` replaces the command. The containers the run
 // starts are found through Docker and get their own views, WireMock with its requests and stubs. See README.md.
 package main
 
@@ -25,22 +27,31 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"testdash/internal/catalog"
+	"testdash/internal/settings"
 	"testdash/internal/ui"
 )
 
 const configName = ".testdash.json"
 
-const usage = `usage: testdash [--task TASK] [--config FILE] [--show-test-output] [--all-containers] [ARG...] [-- COMMAND...]
+const usage = `usage: testdash [--task TASK] [--config FILE] [--show-test-output] [--all-containers]
+                [TASK...] [--tests PATTERN...] [ARG...] [-- COMMAND...]
+       testdash --settings
 
 Pick tests, run them, and follow the results and every service the run starts.
 
+  testdash                                  pick from the build's tests
+  testdash :app:test --tests '*OrderTest'   run these at once, as gradlew would
+
 options:
   --task TASK         the Gradle test task to show first, e.g. :app:blackBoxTest
+  --tests PATTERN     run the tests Gradle's filter matches, at once; may be given more than once
   --config FILE       config file (default: the nearest .testdash.json)
-  --show-test-output  keep test stdout in the Output view; by default the service views show it
+  --show-test-output  keep test stdout in Gradle's output; by default the service views show it
   --all-containers    follow every running container, not only those the run starts
+  --settings          change testdash's settings: icons, colours, mouse, log defaults
 
-Arguments testdash does not know are passed to Gradle; everything after -- replaces the command.
+A task path (:app:test) runs that task at once. Arguments testdash does not know are passed to Gradle;
+everything after -- replaces the command.
 `
 
 type options struct {
@@ -48,6 +59,8 @@ type options struct {
 	config         string
 	showTestOutput bool
 	allContainers  bool
+	settings       bool
+	tests          []string
 	extra          []string
 	explicit       []string
 }
@@ -72,6 +85,13 @@ func run(argv []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "%s\ntestdash: error: %s\n", strings.SplitN(usage, "\n", 2)[0], err)
 		return 2
+	}
+	prefs, err := settings.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "testdash: cannot read %s, using the defaults: %s\n", settings.Path(), err)
+	}
+	if opts.settings {
+		return runSettings(prefs)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -117,20 +137,21 @@ func run(argv []string) int {
 	if task == "" {
 		task = cfg.Task
 	}
-	settings := ui.Settings{
+	options := ui.Options{
 		Workdir:              workdir,
 		BuildRoot:            buildRoot,
 		Command:              command,
 		ExtraArgs:            opts.extra,
+		Tests:                opts.tests,
 		Task:                 task,
-		ShowTestOutput:       opts.showTestOutput || cfg.ShowTestOutput,
-		IncludeAllContainers: opts.allContainers,
+		ShowTestOutput:       opts.showTestOutput || cfg.ShowTestOutput || prefs.ShowTestOutput,
+		IncludeAllContainers: opts.allContainers || prefs.AllContainers,
 		RunDir:               runDir,
 		ExtraLogs:            cfg.Logs,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	model := ui.New(ctx, settings)
+	model := ui.New(ctx, options, prefs)
 	program := tea.NewProgram(model)
 	model.SetSend(program.Send)
 	// A closed terminal hangs up: stop the run with it, rather than leave Gradle running in its own session.
@@ -154,6 +175,16 @@ func run(argv []string) int {
 		fmt.Fprintln(os.Stderr, "testdash:", err)
 		return 1
 	}
+	return 0
+}
+
+// runSettings shows the settings on their own screen.
+func runSettings(prefs settings.Settings) int {
+	if _, err := tea.NewProgram(ui.NewSettingsApp(prefs)).Run(); err != nil {
+		fmt.Fprintln(os.Stderr, "testdash:", err)
+		return 1
+	}
+	resetKeyboard()
 	return 0
 }
 
@@ -195,6 +226,12 @@ func parseArgs(argv []string) (options, error) {
 			opts.showTestOutput = true
 		case "--all-containers":
 			opts.allContainers = true
+		case "--settings":
+			opts.settings = true
+		case "--tests":
+			var pattern string
+			pattern, err = takeValue()
+			opts.tests = append(opts.tests, pattern)
 		default:
 			opts.extra = append(opts.extra, arg)
 		}
