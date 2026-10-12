@@ -1,5 +1,10 @@
 # testdash
 
+<p align="center">
+  <img src="docs/images/running.png" width="880"
+    alt="testdash during a run: the tests by class, the services the run started, and a live dashboard of results, activity and every class on a timeline">
+</p>
+
 Pick tests, run them, and follow everything the run touches, in one terminal app. It works in any Gradle
 repo with no configuration: it lists the build's tests itself, and finds the application, WireMock, databases
 and brokers the tests start through Docker.
@@ -7,6 +12,10 @@ and brokers the tests start through Docker.
 testdash is a single Go binary built with [Bubble Tea](https://github.com/charmbracelet/bubbletea) and
 [Lip Gloss](https://github.com/charmbracelet/lipgloss). It paints its own dark theme, so it looks the same in
 any terminal, and shows a run's progress in the terminal's tab or taskbar where the terminal supports it.
+
+<p align="center">
+  <a href="docs/trailer.mp4"><img src="docs/images/trailer.png" width="640" alt="Watch the trailer"></a>
+</p>
 
 ## The screen
 
@@ -21,6 +30,10 @@ result and time from the last run. The first row, *All tests*, is the run as a w
 a class (`●` marks what is selected, `◐` a class partly selected), and `enter` or `r` runs the selection. With nothing selected, `enter` runs the
 test or class under the cursor and `r` runs everything. `/` filters by name (case, spaces and punctuation ignored) and `s` shows
 only the failed or unfinished tests.
+
+<p align="center">
+  <img src="docs/images/pick.png" width="880" alt="Picking tests: one class selected, another partly, three closed">
+</p>
 
 **2 · Services** is Gradle's output and every container the run started: the application (★) first, then
 WireMock, Kafka, databases and the rest, each with a word on what it has seen (warnings, requests, messages,
@@ -40,6 +53,21 @@ queries) and a dot for whether it runs.
   `enter` opens it in its service's view, narrowed to the test's time.
 - *Gradle or a service*: its log, or WireMock's requests (with the closest stub for each unmatched one), stubs
   and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's queries and log.
+
+<p align="center">
+  <img src="docs/images/failure.png" width="880"
+    alt="A failed test: its assertion and stack trace, then every SQL query, HTTP request, Kafka message, MongoDB write and log line while it ran, with the unmatched refund request selected">
+</p>
+<p align="center">
+  <img src="docs/images/wiremock.png" width="880"
+    alt="WireMock's requests during the failed test, zoomed: the refund request no stub matched, and the closest stub, which wants a JSON Content-Type">
+</p>
+<table>
+  <tr>
+    <td><img src="docs/images/kafka.png" alt="Kafka's messages, with the selected message's headers"></td>
+    <td><img src="docs/images/logs.png" alt="The application's warnings and errors, with a stack trace under the error that logged it"></td>
+  </tr>
+</table>
 
 `tab` moves between the panels, and `1`, `2` and `3` go straight to one. `z` gives the details the whole width,
 and on a narrow terminal the lists and the details take turns. Esc goes back: it clears a filter or a test's
@@ -72,6 +100,10 @@ file is up, the dashboard says which container (or process) holds the port.
 `testdash --settings` opens the settings on their own screen, and `ctrl+s` opens them inside testdash, where
 changes apply at once. Each change is saved to `~/.config/testdash/settings.json` (or under
 `$XDG_CONFIG_HOME`).
+
+<p align="center">
+  <img src="docs/images/settings.png" width="880" alt="The settings over a finished run, with a preview of the icons and accent">
+</p>
 
 | Setting | |
 |---|---|
