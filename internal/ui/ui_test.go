@@ -407,6 +407,49 @@ func TestHighlightSQL(t *testing.T) {
 	}
 }
 
+func TestCopyQueriesAndPayloads(t *testing.T) {
+	var copied []string
+	real := systemClipboard
+	systemClipboard = func(text string) bool { copied = append(copied, text); return true }
+	t.Cleanup(func() { systemClipboard = real })
+	run := func(cmd tea.Cmd) {
+		if cmd != nil {
+			cmd()
+		}
+	}
+	m := testModel(t)
+	db := services.NewService("mariadb", "mariadb", "mariadb:11")
+	m.Update(services.Added{Service: db})
+	view := m.serviceEntry(db).view.(*dbView)
+	m.Update(queriesMsg{view: view, batch: []databases.Query{{At: time.Now(), Connection: "7", Kind: "Query",
+		Text: "select 1 from dual"}}})
+	m.serviceList.selectEntry(m, m.serviceEntry(db))
+	m.setFocus(m.serviceList)
+	m.setFocus(view.table)
+	if footer := screen(m); !strings.Contains(footer, "c  Copy query") {
+		t.Errorf("the footer offers to copy the query:\n%s", footer)
+	}
+	_, cmd := m.Update(key("c"))
+	run(cmd)
+
+	kafkaService := services.NewService("kafka", "kafka", "apache/kafka:3.8.0")
+	m.Update(services.Added{Service: kafkaService})
+	messages := m.serviceEntry(kafkaService).view.(*kafkaView)
+	value := `{"id":1}`
+	m.Update(kafkaMessagesMsg{view: messages, batch: []kafka.Message{{At: time.Now(), Topic: "orders", Value: &value}}})
+	m.serviceList.selectEntry(m, m.serviceEntry(kafkaService))
+	m.setFocus(messages.table)
+	_, cmd = m.Update(key("c"))
+	run(cmd)
+
+	if strings.Join(copied, " | ") != `select 1 from dual | {"id":1}` {
+		t.Errorf("c copies the query, then the payload as it was sent: %q", copied)
+	}
+	if !strings.Contains(screen(m), "Copied the payload") {
+		t.Error("copying says so")
+	}
+}
+
 func TestKafkaMessagesStayInTimeOrder(t *testing.T) {
 	m := testModel(t)
 	service := services.NewService("kafka", "kafka", "apache/kafka:3.8.0")

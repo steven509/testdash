@@ -1079,6 +1079,12 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 			v.showHeaders = !v.showHeaders
 			return nil
 		}).when(func() bool { return v.activeID() == "messages" }),
+		bind("c", "Copy payload", func() tea.Cmd {
+			return m.copyText("the payload", *v.byKey[v.table.cursorKey()].Value)
+		}).when(func() bool {
+			message, ok := v.byKey[v.table.cursorKey()]
+			return v.activeID() == "messages" && ok && message.Value != nil
+		}),
 	)}
 	switch v.activeID() {
 	case "log":
@@ -1397,6 +1403,11 @@ func (v *dbView) levels(m *Model, focus any) []level {
 			v.showRaw = !v.showRaw
 			return nil
 		}).when(func() bool { return !v.mongo && v.activeID() == "queries" }),
+		bind("c", "Copy query", func() tea.Cmd { return m.copyText("the query", v.byKey[v.table.cursorKey()].Text) }).
+			when(func() bool {
+				_, ok := v.byKey[v.table.cursorKey()]
+				return v.activeID() == "queries" && ok
+			}),
 	)}
 	if v.activeID() == "log" {
 		return append(v.log.levels(m, focus), own)

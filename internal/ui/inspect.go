@@ -47,6 +47,12 @@ type timelineEvent struct {
 	detail  func() string
 	service *svcEntry
 	reveal  func() // selects the event in its service's view
+	copy    copyable
+}
+
+// copyable is what c copies from an event, such as a query or a message's payload, and its name.
+type copyable struct {
+	name, text string
 }
 
 func newInspector() *inspector {
@@ -194,7 +200,13 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 func (in *inspector) levels(m *Model, focus any) []level {
 	switch focus {
 	case in.events:
-		return []level{tableLevel(in.events, "Open in its service", func() tea.Cmd { in.open(m); return nil })}
+		events := tableLevel(in.events, "Open in its service", func() tea.Cmd { in.open(m); return nil })
+		if i := in.events.cursor; i >= 0 && i < len(in.timeline) && in.timeline[i].copy.text != "" {
+			c := in.timeline[i].copy
+			events.bindings = append(events.bindings,
+				bind("c", "Copy "+c.name, func() tea.Cmd { return m.copyText("the "+c.name, c.text) }))
+		}
+		return []level{events}
 	case in.event:
 		return []level{detailLevel(in.event)}
 	}
@@ -258,9 +270,13 @@ func (m *Model) timeline(w *window) []timelineEvent {
 			for _, message := range v.messagesBetween(w) {
 				message := message
 				summary := style.Bold.Render(cleanText(message.Topic)) + "  " + style.Dim.Render(preview(message.Value, 80))
-				events = append(events, timelineEvent{at: message.At, source: "KAFKA", color: style.Pink, summary: summary,
+				event := timelineEvent{at: message.At, source: "KAFKA", color: style.Pink, summary: summary,
 					service: entry, reveal: func() { v.table.selectKey(messageKey(message)) },
-					detail: func() string { return describeMessage(message) }})
+					detail: func() string { return describeMessage(message) }}
+				if message.Value != nil {
+					event.copy = copyable{"payload", *message.Value}
+				}
+				events = append(events, event)
 			}
 		case *dbView:
 			source := "SQL"
@@ -276,7 +292,7 @@ func (m *Model) timeline(w *window) []timelineEvent {
 				}
 				events = append(events, timelineEvent{at: q.At, source: source, color: style.Orange, summary: summary,
 					service: entry, reveal: func() { v.selectQuery(q) },
-					detail: func() string { return describeQuery(q, entry.svc.Kind) }})
+					detail: func() string { return describeQuery(q, entry.svc.Kind) }, copy: copyable{"query", q.Text}})
 			}
 		default:
 			if !entry.svc.IsApp() {

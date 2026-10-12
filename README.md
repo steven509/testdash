@@ -50,10 +50,12 @@ queries) and a dot for whether it runs.
 - *A test*: its result, its failure with the stack trace (your own frames bright, library frames folded), and
   **what happened during it**: every HTTP request WireMock received, Kafka message, SQL or MongoDB query, and
   warning or error the application logged while it ran, in time order. Select one to see all of it below;
-  `enter` opens it in its service's view, narrowed to the test's time.
+  `enter` opens it in its service's view, narrowed to the test's time, and `c` copies a query or a message's
+  payload.
 - *Gradle or a service*: its log, or WireMock's requests (with the closest stub for each unmatched one), stubs
   and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's
-  queries and log. A SQL query shows laid out over lines and coloured, or as the database logged it (`v`).
+  queries and log. A SQL query shows laid out over lines and coloured, or as the database logged it (`v`), and
+  `c` copies the query or the message's payload.
 
 <p align="center">
   <img src="docs/images/failure.png" width="880"
@@ -195,7 +197,8 @@ switched on over a connection to the server that serves the tests, not the tempo
 init scripts on, so queries made before that (migrations at startup, say) are missed. MongoDB needs `mongosh`,
 which its images have from 6.0. SQL is laid out by [sql-formatter](https://github.com/sql-formatter-org/sql-formatter)
 in the database's dialect, run in [goja](https://github.com/dop251/goja), and coloured by
-[chroma](https://github.com/alecthomas/chroma).
+[chroma](https://github.com/alecthomas/chroma). `c` copies with the system's clipboard command (`pbcopy`,
+`wl-copy`, `xclip`, `xsel` or `clip.exe`), or over SSH with the terminal's own clipboard (OSC 52).
 
 **Kafka** is read with its own tools in its container. One `kafka-console-consumer` follows every topic with a
 formatter that prints each message as JSON with its topic (`internal/kafka/formatter/TestdashFormatter.java`,
