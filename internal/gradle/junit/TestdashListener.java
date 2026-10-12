@@ -1,6 +1,8 @@
 package testdash;
 
 import java.io.IOException;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.io.Writer;
 import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
@@ -169,9 +171,11 @@ public class TestdashListener implements TestExecutionListener {
             .map(t -> t.getClass().getSimpleName() + ": " + t.getMessage())
             .map(m -> m.length() > 2000 ? m.substring(0, 2000) : m)
             .orElse(null);
+        String trace = result.getThrowable().map(TestdashListener::trace).orElse(null);
         write("finished", "\"id\":" + json(testIdentifier.getUniqueId())
             + ",\"status\":" + json(result.getStatus().name())
-            + ",\"message\":" + json(message));
+            + ",\"message\":" + json(message)
+            + ",\"trace\":" + json(trace));
     }
 
     @Override
@@ -227,6 +231,21 @@ public class TestdashListener implements TestExecutionListener {
             + ",\"className\":" + json(className)
             + ",\"methodName\":" + json(methodName)
             + ",\"name\":" + json(identifier.getDisplayName()) + "}";
+    }
+
+    /** The stack trace, its causes included, cut to its first 80 lines. */
+    private static String trace(Throwable throwable) {
+        StringWriter out = new StringWriter();
+        throwable.printStackTrace(new PrintWriter(out));
+        String[] lines = out.toString().split("\\r?\\n");
+        StringBuilder kept = new StringBuilder();
+        for (int i = 0; i < lines.length && i < 80; i++) {
+            kept.append(i == 0 ? "" : "\n").append(lines[i]);
+        }
+        if (lines.length > 80) {
+            kept.append("\n\t... ").append(lines.length - 80).append(" more");
+        }
+        return kept.toString();
     }
 
     private void write(String event, String fields) {

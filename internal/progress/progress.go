@@ -6,7 +6,7 @@
 //	plan        {"entries": [entry, ...]}  every class, test and test template, in run order
 //	registered  {"entry": entry}           a test created while running, e.g. a parameterised invocation
 //	started     {"id"}
-//	finished    {"id", "status": "SUCCESSFUL" | "FAILED" | "ABORTED", "message"}
+//	finished    {"id", "status": "SUCCESSFUL" | "FAILED" | "ABORTED", "message", "trace"}
 //	skipped     {"id", "message"}
 //	containers  {"testcontainers": bool, "labels": ["key=value", ...]}
 //	done        {}
@@ -36,6 +36,7 @@ type State struct {
 	StartedAt  int64  // epoch millis, 0 until it starts
 	FinishedAt int64
 	Message    string
+	Trace      string // the failure's stack trace, when the listener sent one
 }
 
 // Took is how long it ran, up to now while it runs; ok is false before it starts.
@@ -75,6 +76,7 @@ type event struct {
 	ID             string             `json:"id"`
 	Status         string             `json:"status"`
 	Message        *string            `json:"message"`
+	Trace          *string            `json:"trace"`
 	Entries        []catalog.RawEntry `json:"entries"`
 	Entry          *catalog.RawEntry  `json:"entry"`
 	Testcontainers bool               `json:"testcontainers"`
@@ -161,6 +163,9 @@ func (p *Progress) apply(e event, changed map[string]bool) {
 				status = "failed"
 			}
 			state.Status, state.FinishedAt, state.Message = status, at, message
+			if e.Trace != nil {
+				state.Trace = *e.Trace
+			}
 		default:
 			state.Status, state.Message, state.FinishedAt = "skipped", message, at
 		}
