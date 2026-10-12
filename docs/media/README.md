@@ -14,6 +14,7 @@ ffmpeg), Google Chrome and [Hack Nerd Font](https://www.nerdfonts.com). The demo
 home under `$TMPDIR/testdash-media`, so your settings stay out of the pictures.
 
 - `tapes/` are the VHS scripts: `stills.tape` walks through every screen taking screenshots, and `scene1` to
-  `scene5` are the trailer's scenes. They type keys, so they follow the demo's test order and services.
+  `scene5` are the trailer's scenes. They type keys, so they follow the demo's test order and services. The
+  scenes run testdash with `TESTDASH_KEYCAST=shortcuts`, which shows each shortcut pressed and what it did.
 - `compose/` frames the screenshots in a window (`window.html`), and builds the trailer from the scenes on a
   captioned backdrop (`scene.html`) between a title and an end card (`card.html`), with headless Chrome and ffmpeg.

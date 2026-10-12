@@ -40,7 +40,7 @@ for i in 0 1 2 3 4; do
     "[1:v]setpts=PTS/${speed[$i]},fps=$fps[term];[0:v][term]overlay=152:214:shortest=1" \
     "${encode[@]}" -an "$out/part$n.mp4"
 done
-ffmpeg -v error -y -loop 1 -t 5 -i "$out/end.png" -vf "fade=out:st=4.2:d=0.8" "${encode[@]}" "$out/part6.mp4"
+ffmpeg -v error -y -loop 1 -t 6 -i "$out/end.png" "${encode[@]}" "$out/part6.mp4" # it stays, to read when it stops
 
 inputs=()
 for n in 0 1 2 3 4 5 6; do inputs+=(-i "$out/part$n.mp4"); done

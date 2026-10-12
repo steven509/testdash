@@ -17,7 +17,7 @@ Down
 Left
 Type "g"
 Space
-Sleep 500ms
+Sleep 2.5s
 Show
 Sleep 600ms
 Enter

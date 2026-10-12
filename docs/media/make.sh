@@ -20,12 +20,16 @@ real_gradle=${GRADLE_USER_HOME:-$HOME/.gradle}
 # testdash compiles its JUnit listener against the JUnit jars in ~/.gradle, which the demo's HOME has to reach
 [[ -e "$work/home/.gradle" ]] || ln -s "$real_gradle" "$work/home/.gradle"
 cp "$media"/tapes/*.tape "$work/tapes/"
-cat > "$work/tapes/setup.tape" <<TAPE
+
+# setup.tape starts each recording's shell; its arguments are more variables to export, such as TESTDASH_KEYCAST=1
+setup() {
+  cat > "$work/tapes/setup.tape" <<TAPE
 Hide
-Type@2ms "export COLORTERM=truecolor DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker} XDG_CACHE_HOME=${XDG_CACHE_HOME:-$HOME/.cache} GRADLE_USER_HOME=$work/gradle HOME=$work/home PATH=$work/bin:\$PATH; unset XDG_CONFIG_HOME; cd $repo/demo/shop; PROMPT='%F{magenta}~/shop%f %F{13}❯%f '; clear"
+Type@2ms "export COLORTERM=truecolor DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker} XDG_CACHE_HOME=${XDG_CACHE_HOME:-$HOME/.cache} GRADLE_USER_HOME=$work/gradle HOME=$work/home PATH=$work/bin:\$PATH $*; unset XDG_CONFIG_HOME; cd $repo/demo/shop; PROMPT='%F{magenta}~/shop%f %F{13}❯%f '; clear"
 Enter
 Sleep 500ms
 TAPE
+}
 
 record() {
   for tape in "$@"; do
@@ -35,16 +39,19 @@ record() {
   done
 }
 
+setup
 record warmup # lists the demo's tests and starts Gradle's daemon, so the recordings never wait for them
 
 for target in "${targets[@]}"; do
   case $target in
     stills)
+      setup
       record stills
       "$media/compose/frame-stills.sh" "$work/tapes/shots" "$repo/docs/images" \
         running pick failure wiremock kafka logs settings
       ;;
     trailer)
+      setup TESTDASH_KEYCAST=shortcuts # the trailer shows each shortcut pressed
       record scene1 scene2 scene3 scene4 scene5
       "$media/compose/compose.sh" "$work/tapes" "$repo/docs/trailer.mp4"
       seconds=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$repo/docs/trailer.mp4")
