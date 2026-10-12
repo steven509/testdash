@@ -601,6 +601,14 @@ func TestSettingsApp(t *testing.T) {
 	}
 }
 
+func TestFooterShowsZoom(t *testing.T) {
+	m := testModel(t)
+	lines := strings.Split(screen(m), "\n")
+	if footer := lines[len(lines)-1]; !strings.Contains(footer, "z  Zoom") {
+		t.Errorf("the footer shows z with the other keys: %q", footer)
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {

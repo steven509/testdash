@@ -306,10 +306,10 @@ func (m *Model) globalLevel() level {
 			when(func() bool { return !m.running() && hasFailures() }),
 		bind("x", "Stop", func() tea.Cmd { m.stop(); return nil }).when(m.busy),
 		bind("ctrl+t", "Task", func() tea.Cmd { m.openTasks(); return nil }).hidden(),
-		bind("z", "Zoom", func() tea.Cmd { m.zoomed = !m.zoomed; return nil }).hidden(),
 		bind("c", "Command", func() tea.Cmd { m.fullCommand = !m.fullCommand; return nil }).hidden().
 			when(func() bool { return m.detailFrom == panelTests && m.tree.cursor == "" && !m.runStarted.IsZero() }),
 		bind("?", "Help", func() tea.Cmd { m.popup = &help{}; return nil }).hidden(),
+		bind("z", "Zoom", func() tea.Cmd { m.zoomed = !m.zoomed; return nil }),
 		bind("q ctrl+q ctrl+c", "Quit", func() tea.Cmd { m.popup = &confirmQuit{}; return nil }),
 		bind("ctrl+p :", "Commands", func() tea.Cmd { m.openPalette(); return nil }).hidden(),
 		bind("ctrl+s", "Settings", func() tea.Cmd { m.openSettings(); return nil }).hidden(),
