@@ -19,8 +19,8 @@ import (
 	"strings"
 	"time"
 
-	"testdash/internal/jsonx"
-	"testdash/internal/services"
+	"github.com/steven509/testdash/internal/jsonx"
+	"github.com/steven509/testdash/internal/services"
 )
 
 type ServeEvent struct {

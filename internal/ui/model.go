@@ -10,10 +10,10 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/databases"
-	"testdash/internal/kafka"
-	"testdash/internal/services"
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/databases"
+	"github.com/steven509/testdash/internal/kafka"
+	"github.com/steven509/testdash/internal/services"
+	"github.com/steven509/testdash/internal/style"
 )
 
 // panel is one of the screen's three parts.

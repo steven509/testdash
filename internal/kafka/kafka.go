@@ -26,11 +26,11 @@ import (
 	"sync"
 	"time"
 
-	"testdash/internal/catalog"
-	"testdash/internal/gradle"
-	"testdash/internal/jsonx"
-	"testdash/internal/runner"
-	"testdash/internal/services"
+	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/gradle"
+	"github.com/steven509/testdash/internal/jsonx"
+	"github.com/steven509/testdash/internal/runner"
+	"github.com/steven509/testdash/internal/services"
 )
 
 //go:embed formatter/TestdashFormatter.java

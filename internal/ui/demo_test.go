@@ -10,15 +10,15 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"testdash/internal/catalog"
-	"testdash/internal/databases"
-	"testdash/internal/jsonx"
-	"testdash/internal/kafka"
-	"testdash/internal/logformat"
-	"testdash/internal/progress"
-	"testdash/internal/services"
-	"testdash/internal/settings"
-	"testdash/internal/wiremock"
+	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/databases"
+	"github.com/steven509/testdash/internal/jsonx"
+	"github.com/steven509/testdash/internal/kafka"
+	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/progress"
+	"github.com/steven509/testdash/internal/services"
+	"github.com/steven509/testdash/internal/settings"
+	"github.com/steven509/testdash/internal/wiremock"
 )
 
 func TestDemoScreens(t *testing.T) {

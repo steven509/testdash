@@ -11,7 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/style"
 )
 
 // rect is a region of the screen.

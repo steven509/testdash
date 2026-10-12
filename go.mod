@@ -1,4 +1,4 @@
-module testdash
+module github.com/steven509/testdash
 
 go 1.26.0
 

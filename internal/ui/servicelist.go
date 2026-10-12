@@ -6,7 +6,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/style"
 )
 
 // serviceList is Gradle's output and the services the run started: the applications, then everything else.

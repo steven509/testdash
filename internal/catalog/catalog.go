@@ -17,7 +17,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"testdash/internal/jsonx"
+	"github.com/steven509/testdash/internal/jsonx"
 )
 
 type Entry struct {

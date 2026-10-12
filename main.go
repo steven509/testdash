@@ -26,9 +26,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
 
-	"testdash/internal/catalog"
-	"testdash/internal/settings"
-	"testdash/internal/ui"
+	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/settings"
+	"github.com/steven509/testdash/internal/ui"
 )
 
 const configName = ".testdash.json"

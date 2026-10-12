@@ -26,7 +26,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/catalog"
 )
 
 var statuses = map[string]string{"SUCCESSFUL": "passed", "FAILED": "failed", "ABORTED": "aborted"}

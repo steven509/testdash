@@ -7,8 +7,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/catalog"
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/style"
 )
 
 var (

@@ -15,8 +15,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"testdash/internal/jsonx"
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/jsonx"
+	"github.com/steven509/testdash/internal/style"
 )
 
 const (

@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/logformat"
 )
 
 const maxLogRows = 20_000

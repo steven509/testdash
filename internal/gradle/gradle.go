@@ -21,7 +21,7 @@ import (
 	"strconv"
 	"strings"
 
-	"testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/catalog"
 )
 
 //go:embed junit

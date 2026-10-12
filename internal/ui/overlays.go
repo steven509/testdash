@@ -7,7 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/style"
 )
 
 // dialog draws a framed card in the middle of the screen, with a title pill, and makes a click outside it

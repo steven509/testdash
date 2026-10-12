@@ -10,10 +10,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/catalog"
-	"testdash/internal/logformat"
-	"testdash/internal/progress"
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/progress"
+	"github.com/steven509/testdash/internal/style"
 )
 
 const maxTimeline = 500

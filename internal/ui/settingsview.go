@@ -6,8 +6,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"testdash/internal/settings"
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/settings"
+	"github.com/steven509/testdash/internal/style"
 )
 
 // settingItem is one line of the settings: what it is, what it says now, and how it changes.

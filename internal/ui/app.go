@@ -20,15 +20,15 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 
-	"testdash/internal/catalog"
-	"testdash/internal/databases"
-	"testdash/internal/gradle"
-	"testdash/internal/logformat"
-	"testdash/internal/progress"
-	"testdash/internal/runner"
-	"testdash/internal/services"
-	"testdash/internal/settings"
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/databases"
+	"github.com/steven509/testdash/internal/gradle"
+	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/progress"
+	"github.com/steven509/testdash/internal/runner"
+	"github.com/steven509/testdash/internal/services"
+	"github.com/steven509/testdash/internal/settings"
+	"github.com/steven509/testdash/internal/style"
 )
 
 const (

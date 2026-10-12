@@ -116,11 +116,13 @@ changes apply at once. Each change is saved to `~/.config/testdash/settings.json
 
 ## Use
 
-Build it with Go 1.26 or later and put the binary on your PATH:
+Install it with Go 1.26 or later, which puts it in `$(go env GOPATH)/bin`:
 
 ```sh
-go build -o ~/.local/bin/testdash .
+go install github.com/steven509/testdash@latest
 ```
+
+From a clone, `go build -o ~/.local/bin/testdash .` puts it wherever you like on your PATH.
 
 It needs Docker for the service views, and Gradle builds need a JDK (`JAVA_HOME` or `javac` on PATH) to compile
 the JUnit listener once.

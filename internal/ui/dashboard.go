@@ -9,9 +9,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/catalog"
-	"testdash/internal/logformat"
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/style"
 )
 
 // dashboard is the run as a whole: how it is going, what failed, how busy each service has been, every class

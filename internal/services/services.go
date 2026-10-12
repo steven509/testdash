@@ -24,7 +24,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/logformat"
 )
 
 var kinds = [][2]string{ // image name keyword -> kind

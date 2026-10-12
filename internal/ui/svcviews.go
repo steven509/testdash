@@ -20,13 +20,13 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/databases"
-	"testdash/internal/jsonx"
-	"testdash/internal/kafka"
-	"testdash/internal/logformat"
-	"testdash/internal/runner"
-	"testdash/internal/style"
-	"testdash/internal/wiremock"
+	"github.com/steven509/testdash/internal/databases"
+	"github.com/steven509/testdash/internal/jsonx"
+	"github.com/steven509/testdash/internal/kafka"
+	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/runner"
+	"github.com/steven509/testdash/internal/style"
+	"github.com/steven509/testdash/internal/wiremock"
 )
 
 const (

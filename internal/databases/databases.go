@@ -21,9 +21,9 @@ import (
 	"sync"
 	"time"
 
-	"testdash/internal/jsonx"
-	"testdash/internal/runner"
-	"testdash/internal/services"
+	"github.com/steven509/testdash/internal/jsonx"
+	"github.com/steven509/testdash/internal/runner"
+	"github.com/steven509/testdash/internal/services"
 )
 
 var QueryKinds = map[string]bool{"mariadb": true, "mysql": true, "mongodb": true}

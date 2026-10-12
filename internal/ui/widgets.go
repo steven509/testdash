@@ -6,8 +6,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
-	"testdash/internal/logformat"
-	"testdash/internal/style"
+	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/style"
 )
 
 // lineInput is a one-line text field.
