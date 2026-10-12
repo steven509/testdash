@@ -29,9 +29,10 @@ type testTree struct {
 	show           string
 	visible        map[string]bool
 	children       map[string][]string
-	expanded       map[string]bool
-	cursor         string // "" is the row for every test
-	want           string // where the cursor was before a filter hid it, to go back to
+	expanded       map[string]bool // what is open, as chosen on the whole tree
+	filtered       map[string]bool // what is open under a filter or show mode, so clearing it restores the above
+	cursor         string          // "" is the row for every test
+	want           string          // where the cursor was before a filter hid it, to go back to
 	offset         int
 	height         int
 	scrollToCursor bool
@@ -68,13 +69,17 @@ func (t *testTree) rebuild(m *Model, reset bool) {
 	for _, top := range m.kids[""] {
 		add("", top)
 	}
-	expand := t.text != "" || t.show != "all" || len(t.visible) <= 60
-	if reset {
+	expand := t.filtering() || len(t.visible) <= 60
+	if reset || t.filtered == nil {
+		t.filtered = map[string]bool{}
+	}
+	if t.expanded == nil {
 		t.expanded = map[string]bool{}
 	}
+	open := t.expansion()
 	for id := range t.visible {
-		if _, known := t.expanded[id]; !known && len(m.kids[id]) > 0 {
-			t.expanded[id] = expand || m.entries[id].Kind == "template"
+		if _, known := open[id]; !known && len(m.kids[id]) > 0 {
+			open[id] = expand || m.entries[id].Kind == "template"
 		}
 	}
 	t.flatDirty = true
@@ -85,6 +90,18 @@ func (t *testTree) rebuild(m *Model, reset bool) {
 		t.cursor, t.want = t.want, ""
 	}
 	t.scrollToCursor = true
+}
+
+func (t *testTree) filtering() bool {
+	return t.text != "" || t.show != "all"
+}
+
+// expansion is what is open in the tree as shown: the filter's own while one applies.
+func (t *testTree) expansion() map[string]bool {
+	if t.filtering() {
+		return t.filtered
+	}
+	return t.expanded
 }
 
 func (t *testTree) computeVisible(m *Model) map[string]bool {
@@ -142,7 +159,7 @@ func (t *testTree) lines() []treeLine {
 		for _, id := range t.children[parent] {
 			line := treeLine{id: id, depth: depth, expandable: len(t.children[id]) > 0}
 			t.flat = append(t.flat, line)
-			if line.expandable && t.expanded[id] {
+			if line.expandable && t.expansion()[id] {
 				walk(id, depth+1)
 			}
 		}
@@ -169,7 +186,8 @@ func (t *testTree) moveTo(i int) {
 }
 
 func (t *testTree) toggle(id string) {
-	t.expanded[id] = !t.expanded[id]
+	open := t.expansion()
+	open[id] = !open[id]
 	t.flatDirty = true
 }
 
@@ -437,7 +455,7 @@ func (t *testTree) row(m *Model, line treeLine, width int, isCursor, focused boo
 	caret := strings.Repeat(" ", ansi.StringWidth(ic.caretOpen)+1)
 	if line.expandable {
 		caret = ic.caretClosed + " "
-		if t.expanded[line.id] {
+		if t.expansion()[line.id] {
 			caret = ic.caretOpen + " "
 		}
 		caret = style.Dim.Render(caret)
@@ -573,7 +591,7 @@ func (t *testTree) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 		t.moveTo(len(lines) - 1)
 	case "left", "h":
 		line := lines[i]
-		if line.expandable && t.expanded[line.id] {
+		if line.expandable && t.expansion()[line.id] {
 			t.toggle(line.id)
 		} else if entry := m.entries[line.id]; entry != nil {
 			if t.visible[entry.Parent] {
@@ -584,7 +602,7 @@ func (t *testTree) key(m *Model, k tea.KeyPressMsg) (bool, tea.Cmd) {
 			t.scrollToCursor = true
 		}
 	case "right", "l":
-		if lines[i].expandable && !t.expanded[lines[i].id] {
+		if lines[i].expandable && !t.expansion()[lines[i].id] {
 			t.toggle(lines[i].id)
 		} else if i+1 < len(lines) && lines[i+1].depth > lines[i].depth {
 			t.moveTo(i + 1)

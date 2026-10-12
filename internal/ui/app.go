@@ -306,6 +306,7 @@ func (m *Model) chooseTask(wanted string, quiet bool) {
 	if changed && !quiet && m.testTask != nil {
 		m.notify(m.testTask.Path+": "+count(len(m.selectable), "test"), "", "information")
 	}
+	m.tree.expanded = nil // another task's tree opens as it starts
 	m.tree.rebuild(m, true)
 	m.version++
 }

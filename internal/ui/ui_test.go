@@ -158,6 +158,23 @@ func TestTreeFiltersSelectsAndRuns(t *testing.T) {
 	clickEverywhere(t, m)
 }
 
+func TestClearingAFilterKeepsWhatWasOpen(t *testing.T) {
+	m := testModel(t)
+	press(m, "down", "left")
+	if m.tree.cursor != "c1" || m.tree.expansion()["c1"] {
+		t.Fatalf("left closes the class under the cursor: %s %v", m.tree.cursor, m.tree.expansion())
+	}
+	press(m, "/")
+	typeText(m, "one")
+	if !m.tree.expansion()["c1"] {
+		t.Error("a filter opens the classes it matches in")
+	}
+	press(m, "esc")
+	if m.tree.text != "" || m.tree.expansion()["c1"] {
+		t.Error("clearing the filter closes the class again, as it was")
+	}
+}
+
 func TestParameterisedTestFailsWithAnInvocation(t *testing.T) {
 	m := testModel(t)
 	m.runStarted, m.runFinished = time.Now(), time.Now()
