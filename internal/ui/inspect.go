@@ -280,10 +280,11 @@ func (m *Model) timeline(w *window) []timelineEvent {
 				events = append(events, event)
 			}
 		case *dbView:
-			source := "SQL"
-			if v.mongo {
-				source = "MONGO"
+			source := map[string]string{"mongodb": "MONGO", "redis": "REDIS"}[v.kind]
+			if source == "" {
+				source = "SQL"
 			}
+			one, _ := v.noun()
 			for _, q := range v.queriesBetween(w) {
 				q := q
 				text := cleanText(q.Text)
@@ -293,7 +294,7 @@ func (m *Model) timeline(w *window) []timelineEvent {
 				}
 				events = append(events, timelineEvent{at: q.At, source: source, color: style.Orange, summary: summary,
 					service: entry, reveal: func() { v.selectQuery(q) },
-					detail: func() string { return describeQuery(q, entry.svc.Kind) }, copy: copyable{"query", q.Text}})
+					detail: func() string { return describeQuery(q, entry.svc.Kind) }, copy: copyable{one, q.Text}})
 			}
 		default:
 			if !entry.svc.IsApp() {

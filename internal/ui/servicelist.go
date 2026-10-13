@@ -207,7 +207,11 @@ func serviceStats(entry *svcEntry) string {
 		if v.client != nil && v.client.Error() != "" {
 			return style.Red.Render(ic.warning)
 		}
-		return style.Dim.Render(compact(len(v.queries)-v.chatter) + " q")
+		unit := " q"
+		if v.kind == "redis" {
+			unit = " cmd"
+		}
+		return style.Dim.Render(compact(len(v.queries)-v.chatter) + unit)
 	}
 	if entry.problems > 0 {
 		return style.Yellow.Render(ic.warning + " " + compact(entry.problems))

@@ -3,7 +3,7 @@
 //
 // MariaDB and MySQL keep a general query log in the mysql.general_log table once log_output=TABLE and general_log
 // are set; testdash reads new rows each second with sql_log_off set, so its own reads are not logged. Postgres
-// logs its statements to the container's output (see pgLog). MongoDB's
+// logs its statements to the container's output (see pgLog), and Redis's MONITOR prints its commands. MongoDB's
 // profiler keeps every operation in each database's system.profile collection at level 2; one mongosh follows
 // them all, turning the profiler on for each database as it appears. Both are switched on over a fresh connection
 // to the server that serves the tests: the images' entrypoints first run a temporary server for their init
@@ -27,7 +27,7 @@ import (
 	"github.com/steven509/testdash/internal/services"
 )
 
-var QueryKinds = map[string]bool{"mariadb": true, "mysql": true, "postgres": true, "mongodb": true}
+var QueryKinds = map[string]bool{"mariadb": true, "mysql": true, "postgres": true, "mongodb": true, "redis": true}
 
 const mongoProfileBytes = 64 * 1024 * 1024 // the default 1MB profile collection rolls over within a test or two
 
@@ -41,11 +41,12 @@ var sqlCommands = map[string]bool{"Query": true, "Execute": true} // Connect, Qu
 type Query struct {
 	At         time.Time // by the database's clock
 	Connection string
-	Kind       string // Query, Execute, Connect... for SQL; find, insert, update, aggregate... for MongoDB
-	Target     string // MongoDB's database.collection; empty for SQL
-	Text       string // the SQL, or MongoDB's command as JSON
-	Millis     string // how long it took, as the database wrote it; empty when unknown
-	Params     string // a Postgres prepared statement's parameters: $1 = '42', $2 = 'x'
+	Kind       string   // Query, Execute, Connect... for SQL; find, insert, update, aggregate... for MongoDB
+	Target     string   // MongoDB's database.collection; empty for SQL
+	Text       string   // the SQL, or MongoDB's command as JSON
+	Millis     string   // how long it took, as the database wrote it; empty when unknown
+	Params     string   // a Postgres prepared statement's parameters: $1 = '42', $2 = 'x'
+	Args       []string // a Redis command and its arguments
 	Detail     jsonx.Object
 	seconds    float64 // At as the database wrote it, to ask for what came after it
 	chatter    bool
@@ -79,6 +80,8 @@ func ForService(service *services.Service) QueryLog {
 		return &pgLog{service: service}
 	case "mongodb":
 		return &mongoLog{service: service}
+	case "redis":
+		return &redisLog{service: service}
 	}
 	return nil
 }

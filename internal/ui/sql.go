@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/steven509/testdash/internal/databases"
+	"github.com/steven509/testdash/internal/jsonx"
 	"github.com/steven509/testdash/internal/sqlformat"
 	"github.com/steven509/testdash/internal/style"
 )
@@ -34,3 +35,24 @@ func describeSQL(q databases.Query, kind string, raw bool) string {
 
 // sqlDialects are sql-formatter's names for the databases testdash reads.
 var sqlDialects = map[string]string{"mariadb": "mariadb", "mysql": "mysql", "postgres": "postgresql"}
+
+// describeRedis is a Redis command, coloured, with any argument that is JSON laid out under it.
+func describeRedis(q databases.Query) string {
+	var b strings.Builder
+	b.WriteString(style.Bold.Render(cleanText(q.Kind)) +
+		style.Dim.Render(fmt.Sprintf("  client %s  %s", q.Connection, clockMillis(q.At))) + "\n\n")
+	for i, arg := range q.Args {
+		if i == 0 {
+			b.WriteString(style.AccentBold.Render(cleanText(databases.QuoteRedisArg(arg))))
+			continue
+		}
+		b.WriteString(" " + style.Green.Render(cleanText(databases.QuoteRedisArg(arg))))
+	}
+	for i, arg := range q.Args[min(1, len(q.Args)):] {
+		if jsonValue(arg) {
+			b.WriteString("\n\n" + style.Dim.Render(fmt.Sprintf("argument %d", i+1)) + "\n" +
+				highlightJSON(cleanBlock(jsonx.Pretty(arg))))
+		}
+	}
+	return b.String()
+}

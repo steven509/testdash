@@ -48,14 +48,15 @@ queries) and a dot for whether it runs.
   Before the first run, the keys that get you started.
 - *A class*: its results and its tests' times as bars.
 - *A test*: its result, its failure with the stack trace (your own frames bright, library frames folded), and
-  **what happened during it**: every HTTP request WireMock received, Kafka message, SQL or MongoDB query, and
-  warning or error the application logged while it ran, in time order. Select one to see all of it below;
-  `enter` opens it in its service's view, narrowed to the test's time, and `c` copies it: a request as a curl
-  command, a query, or a message's payload. On a failed test, `c` copies its failure.
+  **what happened during it**: every HTTP request WireMock received, Kafka message, SQL or MongoDB query, Redis
+  command, and warning or error the application logged while it ran, in time order. Select one to see all of
+  it below; `enter` opens it in its service's view, narrowed to the test's time, and `c` copies it: a request
+  as a curl command, a query or command, or a message's payload. On a failed test, `c` copies its failure.
 - *Gradle or a service*: its log, or WireMock's requests (with the closest stub for each unmatched one), stubs
   and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's
-  queries and log. A SQL query shows laid out over lines and coloured, or as the database logged it (`v`); JSON
-  is coloured wherever it shows. `c` copies the request as curl, the query or the message's payload.
+  queries or Redis's commands, and log. A SQL query shows laid out over lines and coloured, or as the database
+  logged it (`v`); JSON is coloured wherever it shows. `c` copies the request as curl, the query, the command
+  or the message's payload.
 
 <p align="center">
   <img src="docs/images/failure.png" width="880"
@@ -201,7 +202,8 @@ init scripts on, so queries made before that (migrations at startup, say) are mi
 which its images have from 6.0. Postgres gets `log_min_duration_statement = 0` and a line prefix of the time and
 process id with `ALTER SYSTEM` and a reload, and testdash reads each statement, with its parameters and how long
 it took, from the container's log; once the server has the settings they are reset in its data directory, so a
-database kept in a volume stops logging when it next restarts. SQL is laid out by [sql-formatter](https://github.com/sql-formatter-org/sql-formatter)
+database kept in a volume stops logging when it next restarts. Redis is followed with `redis-cli MONITOR`, with
+the password from `REDIS_PASSWORD` or `--requirepass` when it has one. SQL is laid out by [sql-formatter](https://github.com/sql-formatter-org/sql-formatter)
 in the database's dialect, run in [goja](https://github.com/dop251/goja), and coloured by
 [chroma](https://github.com/alecthomas/chroma). `c` copies with the system's clipboard command (`pbcopy`,
 `wl-copy`, `xclip`, `xsel` or `clip.exe`), or over SSH with the terminal's own clipboard (OSC 52).

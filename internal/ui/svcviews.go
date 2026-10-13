@@ -1303,28 +1303,44 @@ type dbView struct {
 	table     *table
 	detail    *textbox
 	log       *logView
-	mongo     bool
-	showRaw   bool // a SQL query as the database logged it, rather than laid out and coloured
+	kind      string // mariadb, mysql, postgres, mongodb or redis
+	showRaw   bool   // a SQL query as the database logged it, rather than laid out and coloured
 }
 
 func newDBView(m *Model, entry *svcEntry, info func() string) *dbView {
 	v := &dbView{entry: entry, client: databases.ForService(entry.svc), info: info, byKey: map[string]databases.Query{},
-		detail: &textbox{}, mongo: entry.svc.Kind == "mongodb",
+		detail: &textbox{}, kind: entry.svc.Kind,
 		log: newLogView(func() []*logformat.Line { return entry.lines.all() }, info)}
-	if v.mongo {
+	switch v.kind {
+	case "mongodb":
 		v.table = newTable("Time", "Op", "Collection", "ms", "Command")
-	} else {
+	case "redis":
+		v.table = newTable("Time", "Client", "Command", "Arguments")
+	default:
 		v.table = newTable("Time", "Conn", "Kind", "Query")
-	}
-	v.tabbedView = tabbedView{tabIDs: []string{"queries", "log"}, tabLabels: []string{"Queries", "Log"}}
-	if !v.mongo {
 		sqlformat.Prepare()
 	}
+	_, many := v.noun()
+	v.tabbedView = tabbedView{tabIDs: []string{"queries", "log"},
+		tabLabels: []string{strings.ToUpper(many[:1]) + many[1:], "Log"}}
 	if v.client != nil {
 		ctx, send := m.ctx, m.send
 		go v.client.Follow(ctx, func(batch []databases.Query) { send(queriesMsg{view: v, batch: batch}) })
 	}
 	return v
+}
+
+// sql is whether the database speaks SQL, which has the formatted and raw tabs.
+func (v *dbView) sql() bool {
+	return v.kind != "mongodb" && v.kind != "redis"
+}
+
+// noun is what the database is asked, in the singular and plural.
+func (v *dbView) noun() (string, string) {
+	if v.kind == "redis" {
+		return "command", "commands"
+	}
+	return "query", "queries"
 }
 
 func (v *dbView) received(m *Model, batch []databases.Query) {
@@ -1374,6 +1390,9 @@ func (v *dbView) addRows(queries []databases.Query) {
 			v.table.addRow(key, clock(q.At), cleanText(q.Kind), cleanText(q.Target), q.Millis, preview(&text, 90))
 			continue
 		}
+		if v.kind == "redis" {
+			text = cleanText(strings.TrimPrefix(strings.TrimPrefix(q.Text, q.Args[0]), " "))
+		}
 		rowStyle := style.Plain
 		if q.Noise() {
 			rowStyle = style.Dim
@@ -1418,9 +1437,11 @@ func (v *dbView) focusables(m *Model) []any {
 
 func (v *dbView) summary() string {
 	if v.client != nil && v.client.Error() != "" {
-		return "cannot read queries: " + cleanText(v.client.Error())
+		_, many := v.noun()
+		return "cannot read " + many + ": " + cleanText(v.client.Error())
 	}
-	text := count(len(v.queries)-v.chatter, "query", "queries")
+	one, many := v.noun()
+	text := count(len(v.queries)-v.chatter, one, many)
 	if v.chatter > 0 {
 		text += ", " + number(v.chatter) + " session chatter"
 	}
@@ -1445,12 +1466,12 @@ func (v *dbView) render(m *Model, r rect) []string {
 	switch {
 	case !ok:
 		v.detail.set("", "")
-	case v.mongo:
-		v.detail.set(key, describeQuery(q, ""))
+	case !v.sql():
+		v.detail.set(key, describeQuery(q, v.kind))
 	default:
-		v.detail.set(fmt.Sprintf("%s/%t", key, v.showRaw), describeSQL(q, v.entry.svc.Kind, v.showRaw))
+		v.detail.set(fmt.Sprintf("%s/%t", key, v.showRaw), describeSQL(q, v.kind, v.showRaw))
 	}
-	if v.mongo {
+	if !v.sql() {
 		return append(out, tablePane(m, pane, v.table, v.detail)...)
 	}
 	active := map[bool]int{false: 0, true: 1}[v.showRaw]
@@ -1460,19 +1481,20 @@ func (v *dbView) render(m *Model, r rect) []string {
 
 func (v *dbView) levels(m *Model, focus any) []level {
 	onTab := func() { m.setFocus(v.main()) }
+	one, many := v.noun()
 	own := level{bindings: append(tabBindings(&v.tabbedView, onTab),
 		bind("n", "Session chatter", func() tea.Cmd {
 			v.showNoise = !v.showNoise
 			v.fillQueries()
 			return nil
-		}).when(func() bool { return !v.mongo }),
-		bind("esc", "All queries", func() tea.Cmd { v.setWindow(m, nil); return nil }).
+		}).when(func() bool { return v.kind != "mongodb" }),
+		bind("esc", "All "+many, func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
 		bind("v", map[bool]string{false: "Raw", true: "Formatted"}[v.showRaw], func() tea.Cmd {
 			v.showRaw = !v.showRaw
 			return nil
-		}).when(func() bool { return !v.mongo && v.activeID() == "queries" }),
-		bind("c", "Copy query", func() tea.Cmd { return m.copyText("the query", v.byKey[v.table.cursorKey()].Text) }).
+		}).when(func() bool { return v.sql() && v.activeID() == "queries" }),
+		bind("c", "Copy "+one, func() tea.Cmd { return m.copyText("the "+one, v.byKey[v.table.cursorKey()].Text) }).
 			when(func() bool {
 				_, ok := v.byKey[v.table.cursorKey()]
 				return v.activeID() == "queries" && ok
@@ -1516,11 +1538,14 @@ func (v *dbView) queriesBetween(w *window) []databases.Query {
 	return found
 }
 
-// describeQuery is a query's details: a SQL query laid out and coloured in its database's dialect, or a MongoDB
-// command with what it did.
-func describeQuery(q databases.Query, dialect string) string {
-	if q.Target == "" {
-		return describeSQL(q, dialect, false)
+// describeQuery is a query's details: a SQL query laid out and coloured in its database's dialect, a Redis
+// command, or a MongoDB command with what it did.
+func describeQuery(q databases.Query, kind string) string {
+	switch {
+	case kind == "redis":
+		return describeRedis(q)
+	case q.Target == "":
+		return describeSQL(q, kind, false)
 	}
 	var b strings.Builder
 	stamp := clockMillis(q.At)

@@ -366,8 +366,9 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 					counts[i]++
 				}
 			}
+			one, many := v.noun()
 			rows = append(rows, activityRow{kindIcon(entry.svc.Kind), entry.svc.Key, counts,
-				func(int) color.Color { return style.Orange }, count(len(v.queries)-v.chatter, "query", "queries")})
+				func(int) color.Color { return style.Orange }, count(len(v.queries)-v.chatter, one, many)})
 		default:
 			severity := make([]int, buckets)
 			lines := entry.lines.all()

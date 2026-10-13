@@ -415,6 +415,35 @@ func TestPostgresQueryShowsItsTimeAndParameters(t *testing.T) {
 	}
 }
 
+func TestRedisCommands(t *testing.T) {
+	var copied []string
+	real := systemClipboard
+	systemClipboard = func(text string) bool { copied = append(copied, text); return true }
+	t.Cleanup(func() { systemClipboard = real })
+	m := testModel(t)
+	service := services.NewService("redis", "redis", "redis:7")
+	m.Update(services.Added{Service: service})
+	view := m.serviceEntry(service).view.(*dbView)
+	args := []string{"SET", "cart:42", `{"items":[1,2]}`, "EX", "60"}
+	m.Update(queriesMsg{view: view, batch: []databases.Query{{At: time.Now(), Connection: "172.18.0.5:52342",
+		Kind: "SET", Args: args, Text: databases.RedisCommandLine(args)}}})
+	m.serviceList.selectEntry(m, m.serviceEntry(service))
+	m.setFocus(m.serviceList)
+	m.setFocus(view.table)
+	s := screen(m)
+	for _, want := range []string{"Commands", "1 command", "Client", "cart:42", "argument 2", `"items": [`, "c  Copy command",
+		"1 cmd"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("Redis's view lacks %q:\n%s", want, s)
+		}
+	}
+	_, cmd := m.Update(key("c"))
+	cmd()
+	if len(copied) != 1 || copied[0] != `SET cart:42 "{\"items\":[1,2]}" EX 60` {
+		t.Errorf("c copies the command as redis-cli takes it: %q", copied)
+	}
+}
+
 func TestHighlightSQL(t *testing.T) {
 	got := highlightSQL("SELECT price FROM products WHERE price > 199.00 AND sku = ?", "mariadb")
 	if !strings.Contains(got, style.AccentBold.Render("SELECT")) || !strings.Contains(got, style.PinkText.Render("?")) {

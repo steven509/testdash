@@ -283,12 +283,12 @@ var helpSections = []struct {
 		{"enter", "run the selection, or this test or class"}, {"/", "filter by name"}, {"s", "all, failed, not passed"},
 		{"c", "copy a failed test's failure"}, {"esc", "clear"}}},
 	{"A test's details", [][2]string{{"↑ ↓", "events while it ran"}, {"enter", "open the event in its service"},
-		{"c", "copy: curl, query, payload"}, {"tab", "the event, the stack trace"}, {"esc", "back to the tests"}}},
+		{"c", "copy: curl, query, command, payload"}, {"tab", "the event, the stack trace"}, {"esc", "back to the tests"}}},
 	{"Logs", [][2]string{{"/", "filter (regex)"}, {"e", "errors only"}, {"f", "follow"}, {"w", "wrap"},
 		{"v", "simplified or full"}, {"t", "times"}, {"esc", "clear, back"}}},
 	{"Services", [][2]string{{"[ ]", "tabs"}, {"↑ ↓", "rows; details beside"}, {"u", "WireMock: unmatched only"},
-		{"enter", "Kafka: a topic's messages"}, {"h", "Kafka: a message's headers"}, {"n", "SQL: session chatter"},
-		{"v", "SQL: formatted or raw"}, {"c", "copy: curl, query, payload"}}},
+		{"enter", "Kafka: a topic's messages"}, {"h", "Kafka: a message's headers"}, {"n", "session chatter: pings, SET, SHOW"},
+		{"v", "SQL: formatted or raw"}, {"c", "copy: curl, query, command, payload"}}},
 }
 
 func (h *help) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
