@@ -213,6 +213,9 @@ func (m *Model) classTable(width int, tests bool) string {
 	}
 	const countsWidth = 16
 	nameWidth := min(48, max(16, width/3))
+	if tests {
+		nameWidth = min(72, max(16, width*2/5)) // for a test's groups before its name, as an outline's
+	}
 	barWidth := max(10, width-nameWidth-countsWidth-17)
 	start, span := m.runSpan()
 	var b strings.Builder
