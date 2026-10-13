@@ -14,7 +14,6 @@ export PATH=/opt/homebrew/bin:$PATH
 
 mkdir -p "$work/bin" "$work/home/.config/testdash" "$work/gradle/wrapper" "$work/tapes/shots"
 (cd "$repo" && go build -o "$work/bin/testdash" .)
-"$repo/demo/shop/libs.sh"
 real_gradle=${GRADLE_USER_HOME:-$HOME/.gradle}
 [[ -e "$work/gradle/wrapper/dists" ]] || ln -s "$real_gradle/wrapper/dists" "$work/gradle/wrapper/dists"
 # testdash compiles its JUnit listener against the JUnit jars in Gradle's cache, which the demo's Gradle home shares

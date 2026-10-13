@@ -1,8 +1,16 @@
 plugins { id 'java' }
 
+repositories { mavenCentral() }
+
 dependencies {
-    implementation fileTree(dir: 'libs/main', include: '*.jar')
-    testImplementation fileTree(dir: 'libs/test', include: '*.jar')
+    implementation 'org.mariadb.jdbc:mariadb-java-client:3.0.10'
+    implementation 'org.apache.kafka:kafka-clients:3.3.2'
+    implementation 'org.mongodb:mongodb-driver-sync:4.6.1'
+    implementation 'com.fasterxml.jackson.core:jackson-databind:2.21.4'
+    implementation 'org.slf4j:slf4j-api:2.0.18'
+    testImplementation platform('org.junit:junit-bom:5.12.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.register('assembleApp', Sync) {
