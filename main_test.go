@@ -27,6 +27,9 @@ func TestParseArgs(t *testing.T) {
 	if _, err := parseArgs([]string{"--task"}); err == nil {
 		t.Error("--task needs a value")
 	}
+	if _, err := parseArgs([]string{"--version"}); !errors.Is(err, errVersion) {
+		t.Error("--version asks for the version")
+	}
 	if _, err := parseArgs([]string{"-h"}); !errors.Is(err, errHelp) {
 		t.Error("-h asks for help")
 	}

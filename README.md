@@ -232,7 +232,7 @@ lists them first.
 
 `--show-test-output` keeps test stdout in Gradle's output (by default the service views show it), and
 `--all-containers` follows every container on the machine rather than only the run's; both are settings too.
-`testdash --settings` changes the settings.
+`testdash --settings` changes the settings, and `testdash --version` says which version you have.
 
 A `.testdash.json` at the repo root (found from the current directory up to the git root) is optional:
 

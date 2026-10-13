@@ -2,6 +2,7 @@
 //
 //	testdash [--task TASK] [--config FILE] [--show-test-output] [--all-containers] [TASK...] [--tests PATTERN...] [ARG...] [-- COMMAND...]
 //	testdash --settings
+//	testdash --version
 //
 // In a Gradle build it lists every test task's tests (JUnit discovery, no build change) and runs the ones you
 // pick. Given a task path or Gradle's --tests filters, as gradlew takes them, it runs those tests at once. Other
@@ -19,6 +20,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
@@ -34,9 +36,13 @@ import (
 
 const configName = ".testdash.json"
 
+// version is set for a release's binaries (-ldflags "-X main.version=v1.2.3"); go install stamps its own.
+var version string
+
 const usage = `usage: testdash [--task TASK] [--config FILE] [--show-test-output] [--all-containers]
                 [TASK...] [--tests PATTERN...] [ARG...] [-- COMMAND...]
        testdash --settings
+       testdash --version
 
 Pick tests, run them, and follow the results and every service the run starts.
 
@@ -50,6 +56,7 @@ options:
   --show-test-output  keep test stdout in Gradle's output; by default the service views show it
   --all-containers    follow every running container, not only those the run starts
   --settings          change testdash's settings: icons, colours, mouse, log defaults
+  --version           print testdash's version
 
 A task path (:app:test) runs that task at once. Arguments testdash does not know are passed to Gradle;
 everything after -- replaces the command.
@@ -82,6 +89,10 @@ func run(argv []string) int {
 	opts, err := parseArgs(argv)
 	if errors.Is(err, errHelp) {
 		fmt.Print(usage)
+		return 0
+	}
+	if errors.Is(err, errVersion) {
+		fmt.Println("testdash", versionString())
 		return 0
 	}
 	if err != nil {
@@ -193,7 +204,41 @@ func runSettings(prefs settings.Settings) int {
 	return 0
 }
 
-var errHelp = errors.New("help")
+var (
+	errHelp    = errors.New("help")
+	errVersion = errors.New("version")
+)
+
+// versionString is the release's version, else the module version go install stamps (v1.2.3), else for a build
+// from a clone, the commit it was built from.
+func versionString() string {
+	if version != "" {
+		return version
+	}
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return "devel"
+	}
+	if v := info.Main.Version; v != "" && v != "(devel)" {
+		return v
+	}
+	revision, dirty := "", false
+	for _, setting := range info.Settings {
+		switch setting.Key {
+		case "vcs.revision":
+			revision = setting.Value[:min(12, len(setting.Value))]
+		case "vcs.modified":
+			dirty = setting.Value == "true"
+		}
+	}
+	switch {
+	case revision == "":
+		return "devel"
+	case dirty:
+		return "devel " + revision + " with changes"
+	}
+	return "devel " + revision
+}
 
 // parseArgs reads testdash's own options; anything else before `--` is for Gradle, and everything after it is
 // the command.
@@ -223,6 +268,8 @@ func parseArgs(argv []string) (options, error) {
 		switch name {
 		case "-h", "--help":
 			return opts, errHelp
+		case "--version":
+			return opts, errVersion
 		case "--task":
 			opts.task, err = takeValue()
 		case "--config":
