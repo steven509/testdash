@@ -1,3 +1,7 @@
+
+
+https://github.com/user-attachments/assets/ead1d169-dcfc-47d8-bde0-af482815cf70
+
 # testdash
 
 <p align="center">
@@ -28,7 +32,9 @@ or class to run just it. `tab` moves to the services and the details, and `?` li
 something first, run `testdash` in [`demo/shop`](demo/shop), a shop whose tests start WireMock, Kafka, MariaDB,
 Postgres, MongoDB and Redis. More in [Use](#use).
 
-https://github.com/user-attachments/assets/ab115325-9d05-4a41-80ee-204ec212ee1c
+
+https://github.com/user-attachments/assets/538d1719-4f6d-49e1-af3b-77ba1eb84a11
+
 
 ## The screen
 
