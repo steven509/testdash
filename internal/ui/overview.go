@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -98,6 +99,10 @@ func (in *inspector) overviewLevels(m *Model, focus any) []level {
 	if in.overview.activeID() == "live" {
 		return in.live.levels(m, focus, tabs)
 	}
+	shown := func() bool { return m.running() && in.overview.activeID() != "classes" }
+	tabs = append(tabs,
+		bind("+ =", "Activity window", func() tea.Cmd { return m.stepActivityWindow(1) }).shown("+ −").when(shown),
+		bind("-", "Shorter activity window", func() tea.Cmd { return m.stepActivityWindow(-1) }).hidden().when(shown))
 	return []level{detailLevel(in.card), {bindings: tabs}}
 }
 
@@ -267,17 +272,15 @@ func (v *liveView) levels(m *Model, focus any, tabs []binding) []level {
 // activityChart is the activity at full size: each source's counts over the run as a bar chart, as tall as the
 // height leaves room for.
 func (m *Model) activityChart(width, height int) string {
-	start, span := m.runSpan()
-	key := fmt.Sprintf("%d/%d/%d/%d/%s", m.version, width, height, int(span.Seconds()), ic.output)
+	grid := m.activityGrid(activityBuckets(width), time.Now())
+	key := fmt.Sprintf("%d/%d/%d/%s/%s", m.version, width, height, grid.key(), ic.output)
 	if m.activityChartKey == key {
 		return m.activityChartText
 	}
-	buckets := activityBuckets(width)
-	step := m.activityGrid(buckets, span)
-	rows := m.activityRows(buckets, start, step)
+	rows := m.activityRows(grid)
 	tall := max(1, min(8, (height-3)/max(1, len(rows))-1))
 	var b strings.Builder
-	b.WriteString(section("Activity", width, "since the run started, "+duration(span.Milliseconds())+" ago") + "\n")
+	b.WriteString(section("Activity", width, grid.about()) + "\n")
 	for _, row := range rows {
 		for i, line := range style.Chart(row.counts, tall, row.colorOf) {
 			heading, total := strings.Repeat(" ", activityLabelWidth), ""
@@ -290,7 +293,26 @@ func (m *Model) activityChart(width, height int) string {
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + axis(buckets, step*time.Duration(buckets)) + "\n")
+	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + grid.axis() + "\n")
 	m.activityChartKey, m.activityChartText = key, b.String()
 	return m.activityChartText
+}
+
+// activityWindows are the lengths the activity can show of a run that goes on.
+var activityWindows = []int{10, 30, 60, 120, 300}
+
+// stepActivityWindow makes the activity show a longer or shorter stretch of the run, and keeps it in the settings.
+func (m *Model) stepActivityWindow(by int) tea.Cmd {
+	i := slices.Index(activityWindows, int(m.prefs.Window()/time.Second))
+	if i < 0 {
+		i = 1
+	}
+	prefs := m.prefs
+	prefs.ActivityWindow = activityWindows[max(0, min(len(activityWindows)-1, i+by))]
+	m.prefs = prefs
+	m.version++
+	if err := prefs.Save(); err != nil {
+		m.notify("Could not keep the activity's window: "+err.Error(), "", "warning")
+	}
+	return nil
 }

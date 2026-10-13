@@ -271,10 +271,17 @@ func statusColor(status string) color.Color {
 
 // axis marks a time line width cells long: the start, the middle and the end.
 func axis(width int, span time.Duration) string {
+	return axisBetween(width, 0, span)
+}
+
+// axisBetween marks a time line of a stretch of the run width cells long, by the run's time at its start, middle
+// and end.
+func axisBetween(width int, from, to time.Duration) string {
 	marks := []struct {
 		at    int
 		label string
-	}{{0, "0s"}, {width / 2, duration(span.Milliseconds() / 2)}, {width, duration(span.Milliseconds())}}
+	}{{0, duration(from.Milliseconds())}, {width / 2, duration((from + (to-from)/2).Milliseconds())},
+		{width, duration(to.Milliseconds())}}
 	line := []rune(strings.Repeat(" ", width))
 	for _, mark := range marks {
 		label := []rune(mark.label)
@@ -298,21 +305,20 @@ type activityRow struct {
 // activitySection is a sparkline for each source over the run so far: tests finishing, Gradle's output, each
 // service's log (yellow or red where it warned or failed), requests, messages and queries.
 func (m *Model) activitySection(width int) string {
-	start, span := m.runSpan()
-	key := fmt.Sprintf("%d/%d/%d/%s", m.version, width, int(span.Seconds()), ic.output)
+	grid := m.activityGrid(activityBuckets(width), time.Now())
+	key := fmt.Sprintf("%d/%d/%s/%s", m.version, width, grid.key(), ic.output)
 	if m.activityKey != key {
-		m.activityKey, m.activityText = key, m.drawActivity(width, start, span)
+		m.activityKey, m.activityText = key, m.drawActivity(width, grid)
 	}
 	return m.activityText
 }
 
 const activityLabelWidth, activityTotalWidth = 18, 18
 
-func (m *Model) drawActivity(width int, start time.Time, span time.Duration) string {
+func (m *Model) drawActivity(width int, grid activityGrid) string {
 	var b strings.Builder
-	b.WriteString(section("Activity", width, "since the run started, "+duration(span.Milliseconds())+" ago") + "\n")
-	columns := activityBuckets(width)
-	for _, row := range m.activityRows(columns, start, m.activityGrid(columns, span)) {
+	b.WriteString(section("Activity", width, grid.about()) + "\n")
+	for _, row := range m.activityRows(grid) {
 		b.WriteString(row.heading() + " " + style.Sparkline(row.counts, row.colorOf) + " " + style.Dim.Render(row.total) + "\n")
 	}
 	return b.String()
@@ -326,32 +332,62 @@ func (row activityRow) heading() string {
 	return fit(style.Dim.Render(row.icon+" ")+cleanText(row.label), activityLabelWidth, true)
 }
 
-// activityGrid is how much of the run each of so many columns counts. While the run goes it is 100ms, doubled as
-// often as the run needs to fit, so a column keeps the same slice of the run as it grows and two columns merge
-// into one when it doubles; were it the run's time so far over the columns, every column's slice would move each
-// second, and what it counts with it. Once the run is over, it is the run's time over the columns.
-func (m *Model) activityGrid(columns int, span time.Duration) time.Duration {
-	if !m.running() {
-		return max(time.Millisecond, span/time.Duration(columns))
-	}
-	step := 100 * time.Millisecond
-	for step*time.Duration(columns) < span {
-		step *= 2
-	}
-	return step
+// activityGrid is the stretch of the run the activity shows, in columns of one step each. While the run goes it
+// is the last stretch, as long as the activity window setting, and moves with the run a column at a time; the
+// columns keep to steps from the run's start, so each counts the same slice of the run for as long as it shows.
+// Once the run is over, it is the whole run.
+type activityGrid struct {
+	start    time.Time // the run's
+	from, to time.Time // the first column's start, and the last moment counted
+	step     time.Duration
+	columns  int
+	window   time.Duration // while the run goes; zero once it is over
 }
 
-// activityRows count what each source did in each of so many slices of the run, leaving out what came before
-// it started or after it ended (or now, while it goes).
-func (m *Model) activityRows(buckets int, start time.Time, step time.Duration) []activityRow {
-	_, span := m.runSpan()
-	end := start.Add(span)
-	bucket := func(at time.Time) int {
-		if at.Before(start) || at.After(end) {
-			return -1
-		}
-		return min(buckets-1, int(at.Sub(start)/step))
+func (m *Model) activityGrid(columns int, now time.Time) activityGrid {
+	start := m.runStarted
+	if !m.running() {
+		_, span := m.runSpan()
+		return activityGrid{start: start, from: start, to: start.Add(span), columns: columns,
+			step: max(time.Millisecond, span/time.Duration(columns))}
 	}
+	window := m.prefs.Window()
+	step := max(time.Millisecond, window/time.Duration(columns))
+	first := max(0, int(now.Sub(start)/step)-columns+1)
+	return activityGrid{start: start, from: start.Add(time.Duration(first) * step), to: now, step: step,
+		columns: columns, window: window}
+}
+
+// column is the column a moment falls in, or -1 outside the grid.
+func (g activityGrid) column(at time.Time) int {
+	if at.Before(g.from) || at.After(g.to) {
+		return -1
+	}
+	return min(g.columns-1, int(at.Sub(g.from)/g.step))
+}
+
+// key changes when the grid moves on a column.
+func (g activityGrid) key() string {
+	return fmt.Sprintf("%d/%d/%d", g.from.UnixNano(), g.step, int(g.to.Sub(g.from)/g.step))
+}
+
+// about says what stretch of the run the grid shows.
+func (g activityGrid) about() string {
+	if g.window > 0 {
+		return "the last " + duration(g.window.Milliseconds()) + " · + − to change"
+	}
+	return "the whole run, " + duration(g.to.Sub(g.start).Milliseconds())
+}
+
+func (g activityGrid) axis() string {
+	from := g.from.Sub(g.start)
+	return axisBetween(g.columns, from, from+g.step*time.Duration(g.columns))
+}
+
+// activityRows count what each source did in each column of a grid, leaving out what came before it or after
+// the run ended (or now, while it goes).
+func (m *Model) activityRows(grid activityGrid) []activityRow {
+	buckets, bucket := grid.columns, grid.column
 	var rows []activityRow
 
 	tests, failedAt := make([]int, buckets), make([]bool, buckets)

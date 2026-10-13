@@ -4,6 +4,7 @@ import (
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -111,6 +112,14 @@ var settingItems = []settingItem{
 			return "The run's"
 		},
 		change: func(s *settings.Settings, _ int) { s.AllContainers = !s.AllContainers }},
+	{section: "Runs", label: "Activity window",
+		help: "While a run goes, its activity shows the last stretch of it this long, moving on with it; once " +
+			"the run is over, all of it. + and − change it on the overview too.",
+		value: func(s settings.Settings) string { return duration(s.Window().Milliseconds()) },
+		change: func(s *settings.Settings, step int) {
+			i := slices.Index(activityWindows, int(s.Window()/time.Second))
+			s.ActivityWindow = activityWindows[(max(0, i)+step+len(activityWindows))%len(activityWindows)]
+		}},
 	{section: "Runs", label: "Notifications",
 		help: "A desktop notification when a run ends, through your terminal (iTerm2, WezTerm, " +
 			"Ghostty, kitty, Windows Terminal and more): while you are in another window, always, or never.",

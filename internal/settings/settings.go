@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/steven509/testdash/internal/noise"
 )
@@ -23,6 +24,9 @@ type Settings struct {
 	WrapLogs       bool   `json:"wrapLogs"`       // logs start wrapping long lines
 	ShowTestOutput bool   `json:"showTestOutput"` // test stdout stays in Gradle's output
 	AllContainers  bool   `json:"allContainers"`  // follow every container, not only the run's
+	// ActivityWindow is how many seconds of a run that goes on the activity shows, the last of them; once it is
+	// over, it shows all of it.
+	ActivityWindow int `json:"activityWindow"`
 	// Notify asks the terminal for a desktop notification when a run ends: away (while the terminal is in the
 	// background), always or off.
 	Notify string `json:"notify"`
@@ -34,7 +38,15 @@ type Settings struct {
 }
 
 func Defaults() Settings {
-	return Settings{Theme: "Violet", Mouse: true, IconSpacing: 1, Notify: "away"}
+	return Settings{Theme: "Violet", Mouse: true, IconSpacing: 1, Notify: "away", ActivityWindow: 30}
+}
+
+// Window is how much of a run that goes on the activity shows.
+func (s Settings) Window() time.Duration {
+	if s.ActivityWindow <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(s.ActivityWindow) * time.Second
 }
 
 // Hidden is whether testdash leaves a kind of service alone.

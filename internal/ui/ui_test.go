@@ -1624,24 +1624,28 @@ func TestTheRunsParts(t *testing.T) {
 
 func TestActivityColumnsKeepTheirCounts(t *testing.T) {
 	m := testModel(t)
-	start := time.Now().Add(-time.Minute)
+	start := time.Now().Add(-time.Hour)
 	m.runStarted, m.runFinished = start, time.Time{}
 	var lines []*logformat.Line
-	for at := time.Duration(0); at < 30*time.Second; at += 100 * time.Millisecond { // a steady ten lines a second
+	for at := time.Duration(0); at < time.Minute; at += 100 * time.Millisecond { // a steady ten lines a second
 		lines = append(lines, logformat.NewLine(start.Add(at), "line"))
 	}
 	m.output.add(lines...)
-	gradle := func(span time.Duration) []int {
-		return m.activityRows(100, start, m.activityGrid(100, span))[1].counts
+	if grid := m.activityGrid(100, start.Add(12*time.Second)); !grid.from.Equal(start) {
+		t.Errorf("the activity fills from the run's start until its window is full, not from %v", grid.from.Sub(start))
 	}
-	before, after := gradle(27*time.Second), gradle(28*time.Second) // drawn a second apart
-	if fmt.Sprint(before[:50]) != fmt.Sprint(after[:50]) {
-		t.Errorf("a column counts the same part of the run as it goes on:\n%v\n%v", before[:50], after[:50])
+	earlier, later := m.activityGrid(100, start.Add(40*time.Second)), m.activityGrid(100, start.Add(41*time.Second))
+	if earlier.step != 300*time.Millisecond || later.to.Sub(later.from) > 30*time.Second {
+		t.Fatalf("the activity shows the last 30s while the run goes: %v over %v", earlier.step, later.to.Sub(later.from))
 	}
-	for i, n := range before[:50] {
-		if n != before[0] {
-			t.Errorf("a steady stream draws level columns, not %d then %d at %d", before[0], n, i)
-			break
+	before, after := m.activityRows(earlier)[1].counts, m.activityRows(later)[1].counts
+	shift := int(later.from.Sub(earlier.from) / earlier.step)
+	if shift <= 0 {
+		t.Fatalf("the window moves on with the run: %d columns", shift)
+	}
+	for i := 0; i+shift < len(before)-1; i++ { // the last column was still counting
+		if after[i] != before[i+shift] || after[i] != 3 {
+			t.Fatalf("a column keeps its count as the window moves on, each a steady 3:\n%v\n%v", before, after)
 		}
 	}
 }
@@ -1655,9 +1659,33 @@ func TestActivityLeavesOutWhatCameAfterTheRun(t *testing.T) {
 		lines = append(lines, logformat.NewLine(start.Add(30*time.Second), "after"))
 	}
 	m.output.add(lines...)
-	start, span := m.runSpan()
-	counts := m.activityRows(100, start, m.activityGrid(100, span))[1].counts
-	if counts[len(counts)-1] != 0 {
+	counts := m.activityRows(m.activityGrid(100, time.Now()))[1].counts
+	if counts[len(counts)-1] != 0 || counts[50] != 1 {
 		t.Errorf("what came after the run is not counted in its last moment: %v", counts)
+	}
+}
+
+func TestTheActivityWindowChanges(t *testing.T) {
+	m := testModel(t)
+	m.runStarted, m.runFinished = time.Now().Add(-45*time.Second), time.Time{}
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	press(m, "3")
+	if !strings.Contains(screen(m), "ACTIVITY  the last 30s") {
+		t.Fatalf("the activity shows the last 30s of a run that goes on:\n%s", screen(m))
+	}
+	press(m, "+")
+	if s := screen(m); !strings.Contains(s, "ACTIVITY  the last 1:00") {
+		t.Errorf("+ shows a longer stretch:\n%s", s)
+	}
+	if saved, err := settings.Load(); err != nil || saved.ActivityWindow != 60 {
+		t.Errorf("the window is kept in the settings: %d %v", saved.ActivityWindow, err)
+	}
+	press(m, "-", "-", "-")
+	if m.prefs.ActivityWindow != 10 {
+		t.Errorf("- goes down to 10s, not past it: %d", m.prefs.ActivityWindow)
+	}
+	m.runFinished, m.dirty = time.Now(), true
+	if !strings.Contains(screen(m), "ACTIVITY  the whole run, 45s") {
+		t.Errorf("once the run is over, the activity shows all of it:\n%s", screen(m))
 	}
 }
