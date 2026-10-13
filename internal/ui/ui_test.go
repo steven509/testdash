@@ -1689,3 +1689,31 @@ func TestTheActivityWindowChanges(t *testing.T) {
 		t.Errorf("once the run is over, the activity shows all of it:\n%s", screen(m))
 	}
 }
+
+func TestActivityPeaksAsRates(t *testing.T) {
+	for _, c := range []struct {
+		n     int
+		while time.Duration
+		want  string
+	}{{3, 300 * time.Millisecond, "10/s"}, {1, 300 * time.Millisecond, "3.3/s"}, {2, 2 * time.Second, "1/s"},
+		{1, 2 * time.Second, "30/min"}, {4500, 300 * time.Millisecond, "15k/s"}} {
+		if got := rate(c.n, c.while); got != c.want {
+			t.Errorf("rate(%d, %v) = %q, want %q", c.n, c.while, got, c.want)
+		}
+	}
+	m := testModel(t)
+	start := time.Now().Add(-20 * time.Second)
+	m.runStarted, m.runFinished = start, start.Add(10*time.Second)
+	var lines []*logformat.Line
+	for i := 0; i < 50; i++ { // fifty lines in a moment, then one
+		lines = append(lines, logformat.NewLine(start.Add(2*time.Second), "burst"))
+	}
+	m.output.add(append(lines, logformat.NewLine(start.Add(8*time.Second), "one"))...)
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	m.inspector.overview.setActive("activity")
+	screen(m)
+	grid := m.activityGrid(activityBuckets(m.inspector.card.wrapWidth), time.Now())
+	if s := screen(m); !strings.Contains(s, "peak "+rate(50, grid.step)) || !strings.Contains(s, "51 lines") {
+		t.Errorf("each chart says what its top stands for:\n%s", s)
+	}
+}

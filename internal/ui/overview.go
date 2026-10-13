@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"math"
 	"regexp"
 	"slices"
 	"strings"
@@ -282,12 +283,19 @@ func (m *Model) activityChart(width, height int) string {
 	var b strings.Builder
 	b.WriteString(section("Activity", width, grid.about()) + "\n")
 	for _, row := range rows {
+		var top []string // what the top of the chart stands for, beside it
+		if peak := slices.Max(row.counts); peak > 0 {
+			top = append(top, "peak "+rate(peak, grid.step))
+		}
 		for i, line := range style.Chart(row.counts, tall, row.colorOf) {
-			heading, total := strings.Repeat(" ", activityLabelWidth), ""
-			if i == tall-1 {
-				heading, total = row.heading(), style.Dim.Render(row.total)
+			heading, side := strings.Repeat(" ", activityLabelWidth), []string(nil)
+			if i == 0 {
+				side = top
 			}
-			b.WriteString(heading + " " + line + " " + total + "\n")
+			if i == tall-1 {
+				heading, side = row.heading(), append([]string{row.total}, side...)
+			}
+			b.WriteString(heading + " " + line + " " + style.Dim.Render(strings.Join(side, " · ")) + "\n")
 		}
 		if tall > 1 {
 			b.WriteString("\n")
@@ -296,6 +304,18 @@ func (m *Model) activityChart(width, height int) string {
 	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + grid.axis() + "\n")
 	m.activityChartKey, m.activityChartText = key, b.String()
 	return m.activityChartText
+}
+
+// rate is how many in a while as a rate: a second, or below one a second, a minute.
+func rate(n int, while time.Duration) string {
+	perSecond := float64(n) / while.Seconds()
+	switch {
+	case perSecond >= 10:
+		return compact(int(math.Round(perSecond))) + "/s"
+	case perSecond >= 1:
+		return strings.TrimSuffix(fmt.Sprintf("%.1f", perSecond), ".0") + "/s"
+	}
+	return strings.TrimSuffix(fmt.Sprintf("%.1f", perSecond*60), ".0") + "/min"
 }
 
 // activityWindows are the lengths the activity can show of a run that goes on.
