@@ -33,6 +33,7 @@ type logView struct {
 	errorsOnly bool
 	noise      noiseMarks[*logformat.Line]
 	showNoise  bool
+	service    string // whose log it is, for noise rules
 	window     *window
 	styleShown int
 	rows       []string
@@ -299,6 +300,14 @@ func (v *logView) levels(m *Model, focus any) []level {
 			v.rerender(m)
 			return nil
 		}).hidden(),
+		bind("N", "Hide as noise", func() tea.Cmd {
+			pattern := ""
+			if v.pattern != nil {
+				pattern = strings.TrimPrefix(v.pattern.String(), "(?i)")
+			}
+			m.hideAsNoise(v.service, pattern)
+			return nil
+		}).hidden().when(func() bool { return v.service != "" }),
 		bind("f", "Follow", func() tea.Cmd {
 			v.follow = !v.follow
 			if !v.follow {

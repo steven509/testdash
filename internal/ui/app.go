@@ -217,6 +217,7 @@ func New(ctx context.Context, opts Options, prefs settings.Settings) *Model {
 	m.inspector = newInspector()
 	m.outputView = newLogView(func() []*logformat.Line { return m.output.all() }, m.outputInfo)
 	m.outputView.noise.rules, m.outputView.noise.gen = m.noiseFor("gradle"), func() int { return m.noiseGeneration }
+	m.outputView.service = "gradle"
 	m.outputView.wrap = m.logWrap
 	m.focus = m.tree
 	m.chooseTask(m.opts.Task, true)

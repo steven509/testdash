@@ -286,10 +286,11 @@ var helpSections = []struct {
 	{"A test's details", [][2]string{{"↑ ↓", "events while it ran"}, {"enter", "open the event in its service"},
 		{"c", "copy: curl, query, command, payload"}, {"t", "by trace, or in time order"}, {"tab", "the event, the stack trace"}, {"esc", "back to the tests"}}},
 	{"Logs", [][2]string{{"/", "filter (regex)"}, {"e", "errors only"}, {"f", "follow"}, {"w", "wrap"},
-		{"v", "simplified or full"}, {"t", "times"}, {"n", "show the noise too"}, {"esc", "clear, back"}}},
+		{"v", "simplified or full"}, {"t", "times"}, {"n", "show the noise too"}, {"N", "hide what the filter finds as noise"},
+		{"esc", "clear, back"}}},
 	{"Services", [][2]string{{"[ ]", "tabs"}, {"↑ ↓", "rows; details beside"}, {"u", "WireMock: unmatched only"},
 		{"enter", "Kafka: a topic's messages"}, {"h", "Kafka: a message's headers"}, {"n", "show the noise too"},
-		{"v", "SQL: formatted or raw"}, {"c", "copy: curl, query, command, payload"}}},
+		{"N", "hide things like it as noise"}, {"v", "SQL: formatted or raw"}, {"c", "copy: curl, query, command, payload"}}},
 }
 
 func (h *help) key(m *Model, k tea.KeyPressMsg) tea.Cmd {

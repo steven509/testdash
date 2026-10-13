@@ -12,6 +12,7 @@ import (
 
 	"github.com/steven509/testdash/internal/catalog"
 	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/noise"
 	"github.com/steven509/testdash/internal/progress"
 	"github.com/steven509/testdash/internal/style"
 	"github.com/steven509/testdash/internal/trace"
@@ -51,7 +52,8 @@ type timelineEvent struct {
 	reveal  func() // selects the event in its service's view
 	copy    copyable
 	trace   trace.Context
-	header  bool // a trace's heading in the events by trace
+	header  bool   // a trace's heading in the events by trace
+	noise   string // what noise rules see of it
 }
 
 // copyable is what c copies from an event, such as a query or a message's payload, and its name.
@@ -214,6 +216,13 @@ func (in *inspector) levels(m *Model, focus any) []level {
 				in.events.cursor, in.events.offset = 0, 0
 				return nil
 			}))
+		if i := in.events.cursor; i >= 0 && i < len(in.timeline) && in.timeline[i].noise != "" {
+			ev := in.timeline[i]
+			events.bindings = append(events.bindings, bind("N", "Hide as noise", func() tea.Cmd {
+				m.hideAsNoise(ev.service.svc.Key, noise.Suggest(ev.noise))
+				return nil
+			}).hidden())
+		}
 		if i := in.events.cursor; i >= 0 && i < len(in.timeline) && in.timeline[i].copy.text != "" {
 			c := in.timeline[i].copy
 			events.bindings = append(events.bindings,
@@ -289,7 +298,8 @@ func (m *Model) collect(w *window, logs func(*logformat.Line) bool, keep func(*t
 				add(timelineEvent{at: e.At, source: "HTTP", color: style.Teal, summary: summary,
 					service: entry, reveal: func() { v.requests.selectKey("r:" + e.ID) },
 					detail: func() string { return describeRequest(e, nil) },
-					copy:   copyable{"request as curl", curlCommand(e, v.client.BaseURL())}, trace: requestTrace(e)})
+					copy:   copyable{"request as curl", curlCommand(e, v.client.BaseURL())}, trace: requestTrace(e),
+					noise: requestNoiseText(e)})
 			}
 		case *kafkaView:
 			for _, message := range v.messagesBetween(w) {
@@ -301,6 +311,7 @@ func (m *Model) collect(w *window, logs func(*logformat.Line) bool, keep func(*t
 				if message.Value != nil {
 					event.copy = copyable{"payload", *message.Value}
 				}
+				event.noise = messageNoiseText(message)
 				event.trace, _ = trace.FromHeaders(func(name string) string {
 					for _, header := range message.Headers {
 						if strings.EqualFold(header.Name, name) && header.Value != nil {
@@ -328,7 +339,7 @@ func (m *Model) collect(w *window, logs func(*logformat.Line) bool, keep func(*t
 				add(timelineEvent{at: q.At, source: source, color: style.Orange, summary: summary,
 					service: entry, reveal: func() { v.selectQuery(q) },
 					detail: func() string { return describeQuery(q, entry.svc.Kind) }, copy: copyable{one, q.Text},
-					trace: context})
+					trace: context, noise: queryNoiseText(q)})
 			}
 		default:
 			if !entry.svc.IsApp() {
@@ -356,7 +367,7 @@ func (m *Model) collect(w *window, logs func(*logformat.Line) bool, keep func(*t
 				}
 				follow := continuation(lines, i)
 				context, _ := trace.FromText(line.Text)
-				add(timelineEvent{at: line.At, source: "LOG", color: color, trace: context,
+				add(timelineEvent{at: line.At, source: "LOG", color: color, trace: context, noise: lineNoiseText(line),
 					summary: style.Fg(color).Render(level) + " " + message, service: entry,
 					detail: func() string {
 						var b strings.Builder

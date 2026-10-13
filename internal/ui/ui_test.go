@@ -1220,6 +1220,47 @@ func TestNoiseRulesLeaveItemsOut(t *testing.T) {
 	}
 }
 
+func TestHideAsNoise(t *testing.T) {
+	m := testModel(t)
+	m.opts.ConfigPath = filepath.Join(t.TempDir(), ".testdash.json")
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	view := m.serviceEntry(mock).view.(*wiremockView)
+	request := func(id, url string, ms int) wiremock.ServeEvent {
+		raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"GET","url":"` + url + `"},"wasMatched":true}`))
+		return wiremock.ServeEvent{ID: id, At: time.Now().Add(time.Duration(ms) * time.Millisecond), Method: "GET",
+			URL: url, Status: 200, Matched: true, Raw: raw}
+	}
+	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasEvents: true, events: []wiremock.ServeEvent{
+		request("e1", "/health/42", 0), request("e2", "/payments", 1), request("e3", "/health/7", 2)}}})
+	m.serviceList.selectEntry(m, m.serviceEntry(mock))
+	m.setFocus(m.serviceList)
+	m.setFocus(view.requests)
+	press(m, "g")
+	view.requests.moveCursor(0)
+	press(m, "N")
+	editor, ok := m.popup.(*noiseEditor)
+	if !ok || editor.pattern.Value() != `^GET /health/\d+$` {
+		t.Fatalf("N suggests a rule from the request: %T %+v", m.popup, editor)
+	}
+	if s := screen(m); !strings.Contains(s, "Matches 2 of 3 now") || !strings.Contains(s, "GET /health/7") {
+		t.Errorf("the editor shows what the pattern matches:\n%s", s)
+	}
+	press(m, "enter")
+	if m.popup != nil || len(view.requests.rows) != 1 {
+		t.Fatalf("enter saves, and the requests it matches go: %d rows", len(view.requests.rows))
+	}
+	if rules, err := noise.LoadConfig(m.opts.ConfigPath); err != nil || len(rules) != 1 ||
+		rules[0] != (noise.Rule{Service: "wiremock", Match: `^GET /health/\d+$`}) {
+		t.Errorf("the rule is in the build's config: %+v %v", rules, err)
+	}
+	m.hideAsNoise("wiremock", "^GET /payments$")
+	press(m, "tab", "right", "enter")
+	if len(m.prefs.Noise) != 1 || m.prefs.Noise[0].Match != "^GET /payments$" || len(view.requests.rows) != 0 {
+		t.Errorf("a rule for every build goes in the settings: %+v, %d rows", m.prefs.Noise, len(view.requests.rows))
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {

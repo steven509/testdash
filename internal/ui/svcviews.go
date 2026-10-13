@@ -24,6 +24,7 @@ import (
 	"github.com/steven509/testdash/internal/jsonx"
 	"github.com/steven509/testdash/internal/kafka"
 	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/noise"
 	"github.com/steven509/testdash/internal/runner"
 	"github.com/steven509/testdash/internal/sqlformat"
 	"github.com/steven509/testdash/internal/style"
@@ -585,6 +586,11 @@ func (v *wiremockView) levels(m *Model, focus any) []level {
 			e, _ := v.selectedRequest()
 			return m.copyText("the request as curl", curlCommand(e, v.client.BaseURL()))
 		}).when(func() bool { _, ok := v.selectedRequest(); return ok }),
+		bind("N", "Hide as noise", func() tea.Cmd {
+			e, _ := v.selectedRequest()
+			m.hideAsNoise(v.entry.svc.Key, noise.Suggest(requestNoiseText(e)))
+			return nil
+		}).hidden().when(func() bool { _, ok := v.selectedRequest(); return ok }),
 	)}
 	if v.activeID() == "log" {
 		return append(v.log.levels(m, focus), own)
@@ -1207,6 +1213,13 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 			v.showHeaders = !v.showHeaders
 			return nil
 		}).when(func() bool { return v.activeID() == "messages" }),
+		bind("N", "Hide as noise", func() tea.Cmd {
+			m.hideAsNoise(v.entry.svc.Key, noise.Suggest(messageNoiseText(v.byKey[v.table.cursorKey()])))
+			return nil
+		}).hidden().when(func() bool {
+			_, ok := v.byKey[v.table.cursorKey()]
+			return v.activeID() == "messages" && ok
+		}),
 		bind("c", "Copy payload", func() tea.Cmd {
 			return m.copyText("the payload", *v.byKey[v.table.cursorKey()].Value)
 		}).when(func() bool {
@@ -1575,6 +1588,13 @@ func (v *dbView) levels(m *Model, focus any) []level {
 			v.showRaw = !v.showRaw
 			return nil
 		}).when(func() bool { return v.sql() && v.activeID() == "queries" }),
+		bind("N", "Hide as noise", func() tea.Cmd {
+			m.hideAsNoise(v.entry.svc.Key, noise.Suggest(queryNoiseText(v.byKey[v.table.cursorKey()])))
+			return nil
+		}).hidden().when(func() bool {
+			_, ok := v.byKey[v.table.cursorKey()]
+			return v.activeID() == "queries" && ok
+		}),
 		bind("c", "Copy "+one, func() tea.Cmd { return m.copyText("the "+one, v.byKey[v.table.cursorKey()].Text) }).
 			when(func() bool {
 				_, ok := v.byKey[v.table.cursorKey()]

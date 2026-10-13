@@ -103,18 +103,19 @@ func (m *Model) noiseFor(service string) func(text string) bool {
 // followNoise has a service's views follow the noise rules.
 func (m *Model) followNoise(entry *svcEntry) {
 	rules, gen := m.noiseFor(entry.svc.Key), func() int { return m.noiseGeneration }
+	key := entry.svc.Key
 	switch v := entry.view.(type) {
 	case *logView:
-		v.noise.rules, v.noise.gen = rules, gen
+		v.noise.rules, v.noise.gen, v.service = rules, gen, key
 	case *wiremockView:
 		v.noise.rules, v.noise.gen = rules, gen
-		v.log.noise.rules, v.log.noise.gen = rules, gen
+		v.log.noise.rules, v.log.noise.gen, v.log.service = rules, gen, key
 	case *kafkaView:
 		v.noise.rules, v.noise.gen = rules, gen
-		v.log.noise.rules, v.log.noise.gen = rules, gen
+		v.log.noise.rules, v.log.noise.gen, v.log.service = rules, gen, key
 	case *dbView:
 		v.noise.rules, v.noise.gen = rules, gen
-		v.log.noise.rules, v.log.noise.gen = rules, gen
+		v.log.noise.rules, v.log.noise.gen, v.log.service = rules, gen, key
 	}
 }
 
