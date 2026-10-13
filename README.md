@@ -30,13 +30,24 @@ and red once one fails. Click the task to choose another.
 result and time from the last run. The first row, *All tests*, is the run as a whole, and while a run goes it is its *Overview*. `space` selects a test or
 a class (`●` marks what is selected, `◐` a class partly selected), and `enter` or `r` runs the selection. With nothing selected, `enter` runs the
 test or class under the cursor and `r` runs everything. `/` filters by name (case, spaces and punctuation ignored) and `s` shows
-only the failed or unfinished tests, or the flaky ones (marked `≈`). `H` lists the runs before, each with its
-failures, which `enter` runs again; a test's details show its last results and its last failure, and after a run the overview says
-what changed since the last one.
+only the failed or unfinished tests, or the flaky ones (marked `≈`).
 
 <p align="center">
-  <img src="docs/images/pick.png" width="880" alt="Picking tests: one class selected, another partly, three closed">
+  <img src="docs/images/pick.png" width="880" alt="Picking tests: part of a Cucumber feature and a whole class selected, another class open">
 </p>
+
+**Every run is kept.** Before the first run, the dashboard shows the last one, with its failures, which `F`
+runs again. `H` lists the runs before, each with its commit and failures, which `enter` runs again. A test's
+details show its last results as a strip, how long it has been failing, and its last failure; after a run, the
+overview says what fails anew, what it fixed and what got slower. A test that passed and failed on the same
+code is flaky, marked `≈`.
+
+<table>
+  <tr>
+    <td><img src="docs/images/history.png" alt="Before the first run: the last run's results and failures, with F to run them again"></td>
+    <td><img src="docs/images/runs.png" alt="The runs before, each with its commit, results and time, and the failures of the one selected"></td>
+  </tr>
+</table>
 
 **2 · Services** is Gradle's output and every container the run started: the application (★) first, then
 WireMock, Kafka, databases and the rest, each with a word on what it has seen (warnings, requests, messages,
@@ -44,21 +55,11 @@ queries) and a dot for whether it runs.
 
 **3 · Details** shows whatever is selected in the panel you were last in:
 
-- *All tests* or *Overview*: the run's dashboard: its results, what is running now, the failures with their messages, a
-  sparkline for each source (tests finishing, Gradle, each log, requests, messages, queries) over the run
-  (while it goes, its last 30 seconds),
-  every class on the run's time line (its setup a thin line, then each test coloured by how it did), a live
-  feed of the newest from the build and the services, and once the run is done, the slowest tests. Its tabs
-  (`[` `]`, a click on a tab or on a section's heading) show each part at full size. *Live* is everything the
-  run showed in one place, newest last: Gradle's output, the applications' logs, the other services' warnings,
-  requests, messages and queries. It follows the newest while the cursor is on the last row; select a row to
-  see all of it beside, `enter` opens it in its service, `/` filters, `c` copies and `t` narrows everything to
-  its trace. *Activity* draws each source's sparkline as a taller chart, its top labelled with its peak rate, and *Classes* puts each test on the
-  run's time line under its class. `z` gives any of them the whole screen. While the run goes, the activity
-  shows its last 30 seconds, ending now at the right and moving left a column at a time; `+` and `−` show from 10 seconds to 5
-  minutes (kept in the settings). Once the run is over, it shows the whole run.
-  Before the first run, the last run kept, with its failures (`F` runs them again), and the keys that get you
-  started.
+- *All tests* or *Overview*: the run's dashboard: its results, what is running now, the failures with their
+  messages, a sparkline for each source (tests finishing, Gradle, each log, requests, messages, queries), every
+  class on the run's time line (its setup a thin line, then each test coloured by how it did), a live feed of the
+  newest from the build and the services, and once the run is done, the slowest tests. Its tabs show each part
+  at full size (below). Before the first run, the last run, and the keys that get you started.
 - *A class*: its results and its tests' times as bars.
 - *A test*: its result, its failure with the stack trace (your own frames bright, library frames folded), and
   **what happened during it**: every HTTP request WireMock received, Kafka message, SQL or MongoDB query, Redis
@@ -78,7 +79,11 @@ queries) and a dot for whether it runs.
 
 <p align="center">
   <img src="docs/images/failure.png" width="880"
-    alt="A failed test: its assertion and stack trace, then every SQL query, HTTP request, Kafka message, MongoDB write and log line while it ran, with the unmatched refund request selected">
+    alt="A failed test: its assertion and stack trace, its history, then every SQL query, HTTP request, Kafka message, MongoDB write and log line while it ran, with the unmatched refund request selected">
+</p>
+<p align="center">
+  <img src="docs/images/traces.png" width="880"
+    alt="A failed test's events by trace: each request the test made, with the payment call, the SQL queries, the Kafka message and the log lines that carried its trace">
 </p>
 <p align="center">
   <img src="docs/images/wiremock.png" width="880"
@@ -86,8 +91,35 @@ queries) and a dot for whether it runs.
 </p>
 <table>
   <tr>
-    <td><img src="docs/images/kafka.png" alt="Kafka's messages, with the selected message's headers"></td>
+    <td><img src="docs/images/kafka.png" alt="Kafka's messages, with the selected message's headers, its traceparent among them"></td>
     <td><img src="docs/images/logs.png" alt="The application's warnings and errors, with a stack trace under the error that logged it"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/images/sql.png" alt="Postgres's queries, the selected one laid out over lines and coloured, with its parameters"></td>
+    <td><img src="docs/images/redis.png" alt="Redis's commands, the carts and the product cache"></td>
+  </tr>
+</table>
+
+**The run's tabs** show each part of the overview at full size: `[` `]`, or a click on a tab or a section's
+heading, and `z` gives any of them the whole screen.
+
+- *Live* is everything the run showed in one place, newest last: Gradle's output, the applications' logs, the
+  other services' warnings, requests, messages and queries. It follows the newest while the cursor is on the
+  last row. Select a row to see all of it beside; `enter` opens it in its service, `/` filters, `c` copies and
+  `t` narrows everything to its trace.
+- *Activity* draws each source as a bar chart, its top labelled with its peak rate. While the run goes it shows
+  the last 30 seconds, ending now at the right and moving left as it goes; `+` and `−` show from 10 seconds to
+  5 minutes (kept in the settings). Once the run is over, it shows all of it.
+- *Classes* puts each test on the run's time line, under its class.
+
+<p align="center">
+  <img src="docs/images/live.png" width="880"
+    alt="Live: everything the run showed, from Gradle, the application, WireMock, Kafka and the databases, with the selected row's details beside it">
+</p>
+<table>
+  <tr>
+    <td><img src="docs/images/activity.png" alt="The activity at full size: a bar chart for each source over the run, each labelled with its peak rate"></td>
+    <td><img src="docs/images/classes.png" alt="The classes on the run's time line, each test under its class, a Cucumber feature's scenarios and outline rows first"></td>
   </tr>
 </table>
 
@@ -114,6 +146,11 @@ saved in the build's `.testdash.json`, to share with the team, or in the setting
 the views, a test's events, the activity and the counts; `n` shows it again in any view, and *Noise filters* in
 the palette lists the rules with what each hides now, to change or remove. A right click anywhere offers what
 can be done with what is under the pointer.
+
+<p align="center">
+  <img src="docs/images/noise.png" width="880"
+    alt="A noise rule for the Kafka client's UNKNOWN_TOPIC_OR_PARTITION warnings, with the log lines it matches highlighted">
+</p>
 
 When the run cannot start its containers because a port is taken, as when another run of the same Compose
 file is up, the dashboard says which container (or process) holds the port.
