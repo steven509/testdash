@@ -1,5 +1,8 @@
 package com.example.shop.db;
 
+import com.example.shop.logging.Log;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -35,12 +38,31 @@ public final class Database {
             throw new IllegalStateException(e);
         }
         try {
-            return work.apply(connection);
+            return work.apply(traced(connection));
         } catch (SQLException e) {
             throw new IllegalStateException(e);
         } finally {
             pool.add(connection);
         }
+    }
+
+    /** The connection, adding the request's trace to each statement as sqlcommenter does, for the database's log. */
+    private static Connection traced(Connection connection) {
+        String traceparent = Log.traceparent();
+        if (traceparent == null) {
+            return connection;
+        }
+        return (Connection) Proxy.newProxyInstance(Connection.class.getClassLoader(), new Class<?>[] {Connection.class},
+                (proxy, method, args) -> {
+                    if (method.getName().equals("prepareStatement") && args != null && args[0] instanceof String sql) {
+                        args[0] = sql + " /*traceparent='" + traceparent + "'*/";
+                    }
+                    try {
+                        return method.invoke(connection, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
     }
 
     @FunctionalInterface

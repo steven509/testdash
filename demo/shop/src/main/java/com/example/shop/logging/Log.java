@@ -33,6 +33,12 @@ public final class Log {
         return traceId;
     }
 
+    /** The request's trace as a W3C traceparent, or null outside a request. */
+    public static String traceparent() {
+        String correlation = CORRELATION.get();
+        return correlation == null ? null : "00-" + correlation + "-01";
+    }
+
     public static void endTrace() {
         CORRELATION.remove();
         CONTEXT.remove();
