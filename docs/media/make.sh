@@ -24,17 +24,19 @@ rm -rf "$work/cache/testdash/history" # each recording starts from the runs warm
 (cd "$repo" && go build -o "$work/bin/testdash" .)
 real_gradle=${GRADLE_USER_HOME:-$HOME/.gradle}
 [[ -e "$work/gradle/wrapper/dists" ]] || ln -s "$real_gradle/wrapper/dists" "$work/gradle/wrapper/dists"
-# testdash compiles its JUnit listener against the JUnit jars in Gradle's cache, which the demo's Gradle home shares
+# Your dependency cache is the demo's read-only one: its Gradle reads what you have and keeps what it fetches in its
+# own, never writing to yours, which another Gradle home must not while your builds use it. testdash finds the
+# JUnit jars it compiles its listener against there too.
 modules="$work/gradle/caches/modules-2"
 mkdir -p "$work/gradle/caches"
-[[ -L $modules ]] || { rm -rf "$modules" && ln -s "$real_gradle/caches/modules-2" "$modules"; }
+[[ -L $modules ]] && rm "$modules" # as earlier versions of this script linked it
 cp "$media"/tapes/*.tape "$work/tapes/"
 
 # setup.tape starts each recording's shell; its arguments are more variables to export, such as TESTDASH_KEYCAST=1
 setup() {
   cat > "$work/tapes/setup.tape" <<TAPE
 Hide
-Type@2ms "export COLORTERM=truecolor DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker} XDG_CACHE_HOME=$work/cache GRADLE_USER_HOME=$work/gradle HOME=$work/home PATH=$work/bin:\$PATH $*; unset XDG_CONFIG_HOME; cd $repo/demo/shop; PROMPT='%F{magenta}~/shop%f %F{13}❯%f '; clear"
+Type@2ms "export COLORTERM=truecolor DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker} XDG_CACHE_HOME=$work/cache GRADLE_USER_HOME=$work/gradle GRADLE_RO_DEP_CACHE=$real_gradle/caches HOME=$work/home PATH=$work/bin:\$PATH $*; unset XDG_CONFIG_HOME; cd $repo/demo/shop; PROMPT='%F{magenta}~/shop%f %F{13}❯%f '; clear"
 Enter
 Sleep 500ms
 TAPE

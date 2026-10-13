@@ -11,7 +11,8 @@ docs/media/make.sh trailer    # the trailer only
 
 It needs Docker, a JDK, Go, [VHS](https://github.com/charmbracelet/vhs) (`brew install vhs`, which brings ttyd and
 ffmpeg), Google Chrome and [Hack Nerd Font](https://www.nerdfonts.com). The demo runs with its own `HOME`, cache and
-Gradle home under `$TMPDIR/testdash-media`, so your settings and run history stay out of the pictures. Stop the demo
+Gradle home under `$TMPDIR/testdash-media`, so your settings and run history stay out of the pictures; your Gradle
+cache is its read-only dependency cache (`GRADLE_RO_DEP_CACHE`), which it reads but never writes. Stop the demo
 first if it is running: the recordings use the same Compose project.
 
 - `tapes/` are the VHS scripts: `warmup.tape` runs the tests once, so there is a run before; `stills.tape` walks
