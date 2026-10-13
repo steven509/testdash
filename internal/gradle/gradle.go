@@ -53,6 +53,16 @@ func GradleCache() string {
 	return filepath.Join(gradleUserHome(), "caches", "modules-2", "files-2.1")
 }
 
+// GradleCaches are the caches jars are found in: the Gradle user home's, then the read-only dependency cache
+// GRADLE_RO_DEP_CACHE names, as CI often shares.
+func GradleCaches() []string {
+	caches := []string{GradleCache()}
+	if dir := os.Getenv("GRADLE_RO_DEP_CACHE"); dir != "" {
+		caches = append(caches, filepath.Join(dir, "modules-2", "files-2.1"))
+	}
+	return caches
+}
+
 func gradleUserHome() string {
 	if dir := os.Getenv("GRADLE_USER_HOME"); dir != "" {
 		return dir
@@ -260,9 +270,19 @@ func Javac() (string, error) {
 	return javac, nil
 }
 
-// junitAPIJars finds launcher, engine and commons jars of one JUnit Platform version in the Gradle cache.
+// junitAPIJars finds launcher, engine and commons jars of one JUnit Platform version in a Gradle cache.
 func junitAPIJars() ([]string, error) {
-	cache := GradleCache()
+	var err error
+	for _, cache := range GradleCaches() {
+		var jars []string
+		if jars, err = junitAPIJarsIn(cache); err == nil {
+			return jars, nil
+		}
+	}
+	return nil, err
+}
+
+func junitAPIJarsIn(cache string) ([]string, error) {
 	var versions map[string]bool
 	for _, module := range apiModules {
 		found := map[string]bool{}

@@ -16,6 +16,10 @@ func TestGradleCacheFollowsGradleUserHome(t *testing.T) {
 	if got := GradleCache(); got != filepath.FromSlash("/ci/gradle/caches/modules-2/files-2.1") {
 		t.Errorf("GRADLE_USER_HOME moves the cache: %s", got)
 	}
+	t.Setenv("GRADLE_RO_DEP_CACHE", "/ci/shared")
+	if got := GradleCaches(); len(got) != 2 || got[1] != filepath.FromSlash("/ci/shared/modules-2/files-2.1") {
+		t.Errorf("jars are found in the read-only dependency cache too: %v", got)
+	}
 }
 
 func TestJarsAreReadableByEveryone(t *testing.T) {

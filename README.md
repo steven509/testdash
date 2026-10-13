@@ -206,7 +206,8 @@ set to their feature files and lines, and the cucumber engine left out on its ow
 
 **Progress** comes from a JUnit listener (`internal/gradle/junit/TestdashListener.java`) the same init script
 puts on every Test task, without changing the build. Both are embedded in the binary, compiled once against JUnit
-jars from your Gradle cache (under `GRADLE_USER_HOME` when that is set), using only JUnit Platform 1.0 API, and
+jars from your Gradle cache (under `GRADLE_USER_HOME` when that is set, or a read-only `GRADLE_RO_DEP_CACHE`),
+using only JUnit Platform 1.0 API, and
 kept in `~/.cache/testdash`.
 
 **Services** are the containers the run started. When the tests use Testcontainers, the listener reports the

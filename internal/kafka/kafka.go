@@ -278,23 +278,25 @@ func formatterJar(ctx context.Context, container string) (string, error) {
 	return jar, gradle.WriteJar(jar, classes, nil)
 }
 
-// kafkaClientsJar finds a 3.x kafka-clients jar in the Gradle cache, else copies the broker's: MessageFormatter
+// kafkaClientsJar finds a 3.x kafka-clients jar in a Gradle cache, else copies the broker's: MessageFormatter
 // moved to kafka-clients in Kafka 2.7.
 func kafkaClientsJar(ctx context.Context, container, tmp string) (string, error) {
-	base := filepath.Join(gradle.GradleCache(), "org.apache.kafka", "kafka-clients")
-	dirs, _ := os.ReadDir(base)
-	var versions []string
-	for _, d := range dirs {
-		major, _, _ := strings.Cut(d.Name(), ".")
-		if n, err := strconv.Atoi(major); err == nil && n >= 3 {
-			versions = append(versions, d.Name())
+	for _, cache := range gradle.GradleCaches() {
+		base := filepath.Join(cache, "org.apache.kafka", "kafka-clients")
+		dirs, _ := os.ReadDir(base)
+		var versions []string
+		for _, d := range dirs {
+			major, _, _ := strings.Cut(d.Name(), ".")
+			if n, err := strconv.Atoi(major); err == nil && n >= 3 {
+				versions = append(versions, d.Name())
+			}
 		}
-	}
-	sort.Slice(versions, func(i, j int) bool { return gradle.CompareVersions(versions[i], versions[j]) > 0 })
-	for _, version := range versions {
-		jars, _ := filepath.Glob(filepath.Join(base, version, "*", "kafka-clients-"+version+".jar"))
-		if len(jars) > 0 {
-			return jars[0], nil
+		sort.Slice(versions, func(i, j int) bool { return gradle.CompareVersions(versions[i], versions[j]) > 0 })
+		for _, version := range versions {
+			jars, _ := filepath.Glob(filepath.Join(base, version, "*", "kafka-clients-"+version+".jar"))
+			if len(jars) > 0 {
+				return jars[0], nil
+			}
 		}
 	}
 	found, _ := services.Command(ctx, "docker", "exec", container, "sh", "-c",
