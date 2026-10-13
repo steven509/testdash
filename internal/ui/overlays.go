@@ -279,7 +279,7 @@ var helpSections = []struct {
 	keys  [][2]string
 }{
 	{"Anywhere", [][2]string{{"tab", "next panel"}, {"1 2 3", "tests, services, details"}, {"r", "run the selection, or all"},
-		{"F", "run the failed tests, or the last run's"}, {"x", "stop (twice kills)"}, {"z", "zoom the details"}, {"c", "the run's whole command"}, {"^t", "test task"}, {"H", "runs before this one"},
+		{"F", "run the failed (or last run's)"}, {"x", "stop (twice kills)"}, {"z", "zoom the details"}, {"c", "the run's whole command"}, {"^t", "test task"}, {"H", "runs before this one"},
 		{"^p :", "commands"}, {"^s", "settings"}, {"q", "quit (asks first)"}}},
 	{"Tests", [][2]string{{"↑ ↓", "move"}, {"← →", "collapse, expand"}, {"space", "select"}, {"a", "select all shown"}, {"u", "unselect the passed"},
 		{"enter", "run the selection, or this test or class"}, {"/", "filter by name"}, {"s", "all, failed, not passed, flaky"},
@@ -293,7 +293,7 @@ var helpSections = []struct {
 		{"esc", "clear, back"}}},
 	{"Services", [][2]string{{"[ ]", "tabs"}, {"↑ ↓", "rows; details beside"}, {"u", "WireMock: unmatched only"},
 		{"enter", "Kafka: a topic's messages"}, {"h", "Kafka: a message's headers"}, {"n", "show the noise too"},
-		{"N", "hide things like it as noise"}, {"t", "only its trace, everywhere; again for all"}, {"v", "SQL: formatted or raw"},
+		{"N", "hide things like it as noise"}, {"t", "its trace everywhere, or all"}, {"v", "SQL: formatted or raw"},
 		{"c", "copy: curl, query, command, payload"}}},
 }
 
