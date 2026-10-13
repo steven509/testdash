@@ -37,7 +37,7 @@ Sleep 300ms
 
 # Running everything
 Type "r"
-Wait+Screen@90s /4 of 6 done/
+Wait+Screen@90s /4 of [0-9]+ done/
 Sleep 300ms
 Screenshot shots/running.png
 Wait+Screen@90s /FAILED [0-9]/
