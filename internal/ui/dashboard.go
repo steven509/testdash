@@ -174,6 +174,19 @@ func (m *Model) classRow(entry *catalog.Entry) *catalog.Entry {
 	return top
 }
 
+// nameUnder is a test's name after those of the groups between it and an ancestor: its nested classes,
+// parameterised test, rule or scenario outline, which tell apart tests named alike, as each outline's examples.
+// A Cucumber outline's Examples, unless named, says nothing and is left out.
+func (m *Model) nameUnder(ancestor string, entry *catalog.Entry) string {
+	names := []string{cleanText(entry.Name)}
+	for parent := m.entries[entry.Parent]; parent != nil && parent.ID != ancestor; parent = m.entries[parent.Parent] {
+		if parent.File == "" || parent.Name != "Examples" {
+			names = append([]string{cleanText(parent.Name)}, names...)
+		}
+	}
+	return strings.Join(names, " › ")
+}
+
 // classOf is the class a test runs in: its own, or for a test from a file, the class above it that runs it.
 func (m *Model) classOf(entry *catalog.Entry) string {
 	for entry != nil && entry.ClassName == "" {
@@ -267,15 +280,11 @@ func (m *Model) classTable(width int, tests bool) string {
 			cells := make([]style.Cell, barWidth)
 			draw(cells, state.StartedAt, state.FinishedAt, style.Cell{Char: "━", Color: statusColor(state.Status)})
 			mark, markStyle := icon(state.Status)
-			names := []string{cleanText(entry.Name)} // under the row: its nested classes, parameterised test, rule
-			for parent := m.entries[entry.Parent]; parent != nil && parent != r.entry; parent = m.entries[parent.Parent] {
-				names = append([]string{cleanText(parent.Name)}, names...)
-			}
 			took := ""
 			if t, ok := state.Took(nowMillis); ok {
 				took = duration(t)
 			}
-			b.WriteString(markStyle.Render(mark) + " " + fit(style.Muted.Render("  "+strings.Join(names, " › ")), nameWidth, true) +
+			b.WriteString(markStyle.Render(mark) + " " + fit(style.Muted.Render("  "+m.nameUnder(r.entry.ID, entry)), nameWidth, true) +
 				" " + style.Cells(cells) + " " + strings.Repeat(" ", countsWidth+1) + style.Dim.Render(fmt.Sprintf("%6s", took)) + "\n")
 		}
 	}

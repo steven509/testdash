@@ -1732,6 +1732,10 @@ func TestCucumberFeatures(t *testing.T) {
 		feature("f1", "s", "class", checkout, 0, "Checkout"),
 		feature("a", "f1", "test", checkout, 6, "A cart is checked out"),
 		feature("b", "f1", "test", checkout, 12, "An unknown product is turned away"),
+		feature("o", "f1", "class", checkout, 14, "Delivery is quoted"),
+		feature("e", "o", "class", checkout, 17, "Examples"),
+		feature("x1", "e", "test", checkout, 19, "GB | Royal Mail"),
+		feature("x2", "e", "test", checkout, 20, "FR | Colissimo"),
 		feature("f2", "s", "class", refunds, 0, "Refunds"),
 		feature("g", "f2", "test", refunds, 3, "A refund is paid back"),
 	}}
@@ -1776,6 +1780,10 @@ func TestCucumberFeatures(t *testing.T) {
 	}
 	if !strings.Contains(s, "  An unknown product") || strings.Contains(s, "Checkout › An unknown") {
 		t.Errorf("a feature's scenarios are named under it:\n%s", s)
+	}
+	m.tree.cursor, m.dirty = "f1", true
+	if s := screen(m); !strings.Contains(s, "Delivery is quoted › GB | Royal Mail") {
+		t.Errorf("a feature's tests are named under it, an outline's examples by their row:\n%s", s)
 	}
 	m.tree.cursor, m.dirty = "b", true
 	s = screen(m)

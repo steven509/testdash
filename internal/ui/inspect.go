@@ -529,7 +529,7 @@ func (m *Model) classSummary(id string, width int) string {
 	nameWidth := min(80, max(20, width*3/5))
 	for _, leaf := range leaves {
 		mark, markStyle := icon(m.status(leaf))
-		line := markStyle.Render(mark) + " " + fit(cleanText(m.entries[leaf].Name), nameWidth, true) + " "
+		line := markStyle.Render(mark) + " " + fit(m.nameUnder(id, m.entries[leaf]), nameWidth, true) + " "
 		if took, ok := m.state(leaf).Took(nowMillis()); ok && m.status(leaf) != "absent" {
 			barWidth := max(4, width-nameWidth-11)
 			fraction := 0.0

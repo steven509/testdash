@@ -17,6 +17,7 @@ import java.nio.file.Paths;
 import java.nio.file.StandardCopyOption;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -274,6 +275,10 @@ public class TestdashListener implements TestExecutionListener {
         if (parent != null && name.startsWith(parent.getDisplayName() + " - ")) {
             name = name.substring(parent.getDisplayName().length() + 3); // as Cucumber's long names repeat their parents'
         }
+        String row = "test".equals(kind) && line != null ? tableRow(source, line) : null;
+        if (row != null) {
+            name = row;
+        }
         return "{\"id\":" + json(identifier.getUniqueId())
             + ",\"parent\":" + json(parent == null ? null : parent.getUniqueId())
             + ",\"kind\":" + json(kind)
@@ -282,6 +287,67 @@ public class TestdashListener implements TestExecutionListener {
             + (file == null ? "" : ",\"file\":" + json(file))
             + (line == null ? "" : ",\"line\":" + line)
             + ",\"name\":" + json(name) + "}";
+    }
+
+    private static final Map<String, List<String>> fileLines = new HashMap<>();
+
+    /**
+     * The cells of the Gherkin table row at a test's line, as "GB | Royal Mail": what tells a Cucumber example from
+     * the others of its outline, which it names only by number. Null when the line is not a table row.
+     */
+    private static String tableRow(TestSource source, int line) {
+        List<String> lines = linesOf(source);
+        if (lines == null || line < 1 || line > lines.size()) {
+            return null;
+        }
+        String text = lines.get(line - 1).trim();
+        if (text.length() < 2 || !text.startsWith("|") || !text.endsWith("|")) {
+            return null;
+        }
+        List<String> cells = new ArrayList<>();
+        for (String cell : text.substring(1, text.length() - 1).split("(?<!\\\\)\\|", -1)) {
+            cells.add(cell.trim());
+        }
+        return String.join(" | ", cells);
+    }
+
+    /** A test source's file as lines, read once; null when it cannot be read. */
+    private static synchronized List<String> linesOf(TestSource source) {
+        String key;
+        if (source instanceof ClasspathResourceSource) {
+            key = "classpath:" + ((ClasspathResourceSource) source).getClasspathResourceName();
+        } else if (source instanceof FileSource) {
+            key = ((FileSource) source).getFile().getPath();
+        } else {
+            return null;
+        }
+        if (fileLines.containsKey(key)) {
+            return fileLines.get(key);
+        }
+        List<String> lines = null;
+        try {
+            byte[] bytes = null;
+            if (source instanceof FileSource) {
+                bytes = Files.readAllBytes(((FileSource) source).getFile().toPath());
+            } else {
+                ClassLoader loader = Thread.currentThread().getContextClassLoader();
+                if (loader == null) {
+                    loader = TestdashListener.class.getClassLoader();
+                }
+                try (InputStream in = loader.getResourceAsStream(key.substring("classpath:".length()))) {
+                    if (in != null) {
+                        bytes = in.readAllBytes();
+                    }
+                }
+            }
+            if (bytes != null) {
+                lines = Arrays.asList(new String(bytes, StandardCharsets.UTF_8).split("\\r?\\n", -1));
+            }
+        } catch (IOException | RuntimeException e) {
+            lines = null;
+        }
+        fileLines.put(key, lines);
+        return lines;
     }
 
     /** The nearest ancestor that is an entry too, past what is not, such as the Cucumber engine in a suite. */
