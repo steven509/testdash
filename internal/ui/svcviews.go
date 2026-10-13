@@ -468,6 +468,11 @@ func (v *wiremockView) requestDetails(key string) string {
 	if !ok {
 		return ""
 	}
+	return v.describe(e)
+}
+
+// describe describes a request, with the closest stub when no stub matched it.
+func (v *wiremockView) describe(e wiremock.ServeEvent) string {
 	var near *wiremock.NearMiss
 	if miss, ok := v.closest[nearMissKey(e.Method, e.URL, e.LoggedDate())]; ok && !e.Matched {
 		near = &miss

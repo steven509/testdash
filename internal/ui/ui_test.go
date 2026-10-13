@@ -684,6 +684,9 @@ func TestWiremockKeepsRequestsWhenTestsResetIt(t *testing.T) {
 	if !strings.Contains(view.requestDetails("r:e2"), "Refund a payment") {
 		t.Errorf("the requests tab shows the closest stub too:\n%s", view.requestDetails("r:e2"))
 	}
+	if detail := requestEvent(m.serviceEntry(service), view, refund).detail(); !strings.Contains(detail, "Refund a payment") {
+		t.Errorf("a test's events and the live feed show the closest stub too:\n%s", detail)
+	}
 	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasEvents: true, events: []wiremock.ServeEvent{
 		request("e0", 50, "/shipping/quotes", true)}}})
 	if view.requests.rows[0].key != "r:e0" {

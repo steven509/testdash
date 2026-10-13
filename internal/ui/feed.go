@@ -20,7 +20,7 @@ func requestEvent(entry *svcEntry, v *wiremockView, e wiremock.ServeEvent) timel
 	}
 	return timelineEvent{at: e.At, source: "HTTP", color: style.Teal, summary: summary, service: entry,
 		reveal: func() { v.requests.selectKey("r:" + e.ID) },
-		detail: func() string { return describeRequest(e, nil) },
+		detail: func() string { return v.describe(e) },
 		copy:   copyable{"request as curl", curlCommand(e, v.client.BaseURL())}, trace: requestTrace(e),
 		noise: requestNoiseText(e)}
 }
