@@ -11,6 +11,13 @@ work=${TESTDASH_MEDIA_WORK:-${TMPDIR:-/tmp}/testdash-media}
 targets=("$@")
 [[ ${#targets[@]} -gt 0 ]] || targets=(stills trailer)
 export PATH=/opt/homebrew/bin:$PATH
+shop=(docker compose --file "$repo/demo/shop/compose.yaml")
+# The demo's containers are one Compose project, whoever runs it: a run here would replace those of a run elsewhere
+if [[ -n $("${shop[@]}" ps --quiet 2>/dev/null) ]]; then
+  echo "The demo is running; stop it first (docker compose down, in demo/shop)." >&2
+  exit 1
+fi
+trap '"${shop[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true' EXIT
 
 mkdir -p "$work/bin" "$work/home/.config/testdash" "$work/gradle/wrapper" "$work/tapes/shots"
 (cd "$repo" && go build -o "$work/bin/testdash" .)
@@ -65,4 +72,3 @@ for target in "${targets[@]}"; do
     *) echo "unknown target $target: stills or trailer" >&2; exit 2 ;;
   esac
 done
-(cd "$repo/demo/shop" && docker compose down --volumes --remove-orphans >/dev/null 2>&1) || true
