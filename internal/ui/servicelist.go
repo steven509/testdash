@@ -58,7 +58,7 @@ func (l *serviceList) choose(m *Model, i int) {
 // preferredHeight is the list's height: its rows, up to two fifths of the body.
 func (l *serviceList) preferredHeight(m *Model, body int) int {
 	wanted := len(l.rows(m)) + 2
-	if len(m.svcs) == 0 {
+	if len(m.orderedServices()) == 0 {
 		wanted += 2 // room to say containers will show up
 	}
 	return max(5, min(wanted, body*2/5))
@@ -122,7 +122,7 @@ func (l *serviceList) render(m *Model, r rect) []string {
 		}
 		content = append(content, line)
 	}
-	if len(m.svcs) == 0 && len(content) < inner.h {
+	if len(m.orderedServices()) == 0 && len(content) < inner.h {
 		content = append(content, "", style.Dim.Render("Containers the run starts show here"))
 	}
 	m.addZone(zone{r: rect{inner.x, inner.y, inner.w, inner.h}, click: func(_, y int) tea.Cmd {
@@ -135,7 +135,7 @@ func (l *serviceList) render(m *Model, r rect) []string {
 		l.offset = max(0, min(l.offset+delta, len(l.rows(m))-l.height))
 	}})
 	count := ""
-	if n := len(m.svcs); n > 0 {
+	if n := len(m.orderedServices()); n > 0 {
 		count = style.Dim.Render(fmt.Sprint(n))
 	}
 	return frame(content, r, numbered(2, "Services"), count, "", focused)

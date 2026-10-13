@@ -185,6 +185,7 @@ type Watcher struct {
 	followers   map[string]*follower
 	lastSeen    map[string]time.Time // container -> last log timestamp, to resume after a restart
 	ignored     map[string]bool
+	hidden      map[string]bool // kinds of service to leave alone
 	retired     map[string]bool // earlier runs' containers, never a later run's however recent
 	firstSeen   map[string]time.Time
 	pending     map[string][]*logformat.Line
@@ -237,6 +238,17 @@ func (w *Watcher) NewRun(startedAt time.Time) int {
 	}
 	w.gen++
 	return w.gen
+}
+
+// SetHidden sets the kinds of service to leave alone; the containers passed over until now are looked at again.
+func (w *Watcher) SetHidden(kinds []string) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	w.hidden = map[string]bool{}
+	for _, kind := range kinds {
+		w.hidden[kind] = true
+	}
+	w.ignored = map[string]bool{}
 }
 
 // EndRun ends the run's scope: containers created after it are someone else's. Its containers stay followed.
@@ -415,7 +427,7 @@ func (w *Watcher) serviceFor(id string, found details) (*Service, any) {
 	image := found.Config.Image
 	labels := found.Config.Labels
 	kind := Classify(image)
-	if kind == "" {
+	if kind == "" || w.hidden[kind] {
 		return nil, nil
 	}
 	base := labels["com.docker.compose.service"]

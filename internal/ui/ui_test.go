@@ -506,6 +506,48 @@ func TestHighlightJSON(t *testing.T) {
 	}
 }
 
+func TestHidingAnIntegration(t *testing.T) {
+	m := testModel(t)
+	m.Update(services.Added{Service: services.NewService("redis", "redis", "redis:7")})
+	m.Update(services.Added{Service: services.NewService("kafka", "kafka", "apache/kafka:3.8.0")})
+	press(m, "ctrl+s")
+	form := m.popup.(*settingsOverlay).form
+	for form.items()[form.cursor].label != "Redis" {
+		press(m, "down")
+	}
+	press(m, "right")
+	if !m.prefs.Hidden("redis") {
+		t.Fatal("the Redis row hides Redis")
+	}
+	press(m, "esc")
+	var keys []string
+	for _, entry := range m.orderedServices() {
+		keys = append(keys, entry.svc.Key)
+	}
+	if strings.Join(keys, " ") != "kafka" {
+		t.Errorf("a hidden kind leaves the services at once: %v", keys)
+	}
+}
+
+func TestSettingsFitAShortTerminal(t *testing.T) {
+	m := testModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 100, Height: 26})
+	press(m, "ctrl+s")
+	for range 20 {
+		press(m, "down")
+	}
+	lines := strings.Split(screen(m), "\n")
+	for i, line := range lines {
+		if strings.Contains(line, "Saved in") {
+			if i+1 >= len(lines) || !strings.Contains(lines[i+1], "╰") || !strings.Contains(screen(m), "▌Redis") {
+				t.Errorf("the rows scroll so the last one and the dialog's foot show:\n%s", screen(m))
+			}
+			return
+		}
+	}
+	t.Errorf("the settings' status is missing:\n%s", screen(m))
+}
+
 func TestDesktopNotifications(t *testing.T) {
 	m := testModel(t)
 	for _, c := range []struct {

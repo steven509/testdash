@@ -117,6 +117,7 @@ changes apply at once. Each change is saved to `~/.config/testdash/settings.json
 | Test output | Whether tests' own output also goes into Gradle's output (as `--show-test-output`). |
 | Containers | The run's containers, or every container on the machine (as `--all-containers`). |
 | Notifications | A desktop notification when a run ends, through the terminal (iTerm2, WezTerm, Ghostty, kitty, Windows Terminal and more): while you are in another window (the default), always, or never. |
+| Integrations | WireMock, Kafka, MariaDB and MySQL, Postgres, MongoDB and Redis can each be hidden: testdash then leaves those containers alone, without listing or following them or switching on their logging. `hiddenServices` in the file takes any kind, such as `zookeeper`. |
 
 ## Use
 

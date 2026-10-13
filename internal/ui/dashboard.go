@@ -430,7 +430,7 @@ func (m *Model) liveFeed(n, width int) string {
 			add(line.At, "gradle", style.Primary, text)
 		}
 	}
-	for _, entry := range m.svcs {
+	for _, entry := range m.orderedServices() {
 		key := entry.svc.Key
 		switch v := entry.view.(type) {
 		case *wiremockView:

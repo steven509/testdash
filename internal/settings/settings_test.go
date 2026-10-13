@@ -3,8 +3,22 @@ package settings
 import (
 	"os"
 	"path/filepath"
+	"slices"
 	"testing"
 )
+
+func TestHide(t *testing.T) {
+	s := Defaults()
+	s.Hide([]string{"mariadb", "mysql"}, true)
+	s.Hide([]string{"redis"}, true)
+	if !s.Hidden("mysql") || !s.Hidden("redis") || s.Hidden("kafka") {
+		t.Errorf("hidden: %v", s.HiddenServices)
+	}
+	s.Hide([]string{"mariadb", "mysql"}, false)
+	if !slices.Equal(s.HiddenServices, []string{"redis"}) {
+		t.Errorf("showing again takes them out: %v", s.HiddenServices)
+	}
+}
 
 func TestOlderSettingsNotifyWhenAway(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())

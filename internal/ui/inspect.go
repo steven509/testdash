@@ -252,7 +252,7 @@ func (m *Model) openEvent(ev timelineEvent, w *window) {
 // application's warnings and errors.
 func (m *Model) timeline(w *window) []timelineEvent {
 	var events []timelineEvent
-	for _, entry := range m.svcs {
+	for _, entry := range m.orderedServices() {
 		entry := entry
 		switch v := entry.view.(type) {
 		case *wiremockView:

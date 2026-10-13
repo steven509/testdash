@@ -195,6 +195,7 @@ func New(ctx context.Context, opts Options, prefs settings.Settings) *Model {
 		}
 	}
 	m.watcher = services.NewWatcher(ctx, func(msg any) { m.send(msg) }, scope, opts.IncludeAllContainers, m.claims)
+	m.watcher.SetHidden(prefs.HiddenServices)
 	m.tree = newTestTree()
 	m.serviceList = &serviceList{}
 	m.inspector = newInspector()
@@ -1042,9 +1043,14 @@ func (m *Model) serviceEntry(service *services.Service) *svcEntry {
 }
 
 // orderedServices lists the services the same way every run, whichever started first: the application, then
-// mocks, brokers, databases and the rest, each by name.
+// mocks, brokers, databases and the rest, each by name. Kinds hidden in the settings are left out.
 func (m *Model) orderedServices() []*svcEntry {
-	ordered := append([]*svcEntry(nil), m.svcs...)
+	var ordered []*svcEntry
+	for _, entry := range m.svcs {
+		if !m.prefs.Hidden(entry.svc.Kind) {
+			ordered = append(ordered, entry)
+		}
+	}
 	sort.SliceStable(ordered, func(i, j int) bool {
 		a, b := serviceRank(ordered[i].svc), serviceRank(ordered[j].svc)
 		if a != b {

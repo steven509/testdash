@@ -91,3 +91,21 @@ func TestBelongs(t *testing.T) {
 		t.Errorf("a container created after the run is not the run's: %v", got)
 	}
 }
+
+func TestHiddenKindsAreLeftAlone(t *testing.T) {
+	w := NewWatcher(t.Context(), func(any) {}, []string{"/repo"}, true, &Claims{})
+	w.SetHidden([]string{"redis"})
+	var redis, kafka details
+	redis.Config.Image, kafka.Config.Image = "redis:7", "apache/kafka:3.8.0"
+	if service, _ := w.serviceFor("r1", redis); service != nil {
+		t.Error("a hidden kind is not followed")
+	}
+	if service, _ := w.serviceFor("k1", kafka); service == nil || service.Kind != "kafka" {
+		t.Errorf("the others are: %v", service)
+	}
+	w.ignored["r1"] = true
+	w.SetHidden(nil)
+	if w.ignored["r1"] {
+		t.Error("showing a kind again looks at its containers again")
+	}
+}

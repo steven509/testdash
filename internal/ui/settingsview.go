@@ -2,6 +2,7 @@ package ui
 
 import (
 	"os"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -12,6 +13,7 @@ import (
 
 // settingItem is one line of the settings: what it is, what it says now, and how it changes.
 type settingItem struct {
+	section string // the heading it goes under
 	label   string
 	visible func(s settings.Settings) bool // shown only when it applies; nil is always
 	help    string
@@ -38,8 +40,9 @@ func themeNames() []string {
 }
 
 var settingItems = []settingItem{
-	{label: "Icons", help: "Nerd Font glyphs for the carets, statuses and services. Your terminal needs a Nerd Font " +
-		"(nerdfonts.com); Unicode works with any font.",
+	{section: "Display", label: "Icons",
+		help: "Nerd Font glyphs for the carets, statuses and services. Your terminal needs a Nerd Font " +
+			"(nerdfonts.com); Unicode works with any font.",
 		value: func(s settings.Settings) string {
 			if s.NerdFont {
 				return "Nerd Font"
@@ -47,9 +50,10 @@ var settingItems = []settingItem{
 			return "Unicode"
 		},
 		change: func(s *settings.Settings, _ int) { s.NerdFont = !s.NerdFont }},
-	{label: "Icon spacing", help: "Spaces after each icon. Nerd Fonts draw some icons wider than a letter, into the " +
-		"space after them; two spaces keep them clear of the text. The Mono variant of a Nerd Font keeps every icon " +
-		"to one cell instead.",
+	{section: "Display", label: "Icon spacing",
+		help: "Spaces after each icon. Nerd Fonts draw some icons wider than a letter, into the " +
+			"space after them; two spaces keep them clear of the text. The Mono variant of a Nerd Font keeps every icon " +
+			"to one cell instead.",
 		visible: func(s settings.Settings) bool { return s.NerdFont },
 		value: func(s settings.Settings) string {
 			if s.IconSpacing >= 2 {
@@ -64,13 +68,16 @@ var settingItems = []settingItem{
 				s.IconSpacing = 2
 			}
 		}},
-	{label: "Accent", help: "The colour of focus and selection, and of the gradients frames and bars blend through.",
+	{section: "Display", label: "Accent",
+		help:   "The colour of focus and selection, and of the gradients frames and bars blend through.",
 		value:  func(s settings.Settings) string { return choice(themeNames(), s.Theme, 0) },
 		change: func(s *settings.Settings, step int) { s.Theme = choice(themeNames(), s.Theme, step) }},
-	{label: "Mouse", help: "Click and scroll in testdash. Off leaves the mouse to your terminal, to select and copy text.",
+	{section: "Display", label: "Mouse",
+		help:   "Click and scroll in testdash. Off leaves the mouse to your terminal, to select and copy text.",
 		toggle: func(s *settings.Settings) *bool { return &s.Mouse }},
-	{label: "Log lines", help: "How logs start: simplified to each line's level and message, or as they were logged. " +
-		"v switches in a log.",
+	{section: "Logs", label: "Log lines",
+		help: "How logs start: simplified to each line's level and message, or as they were logged. " +
+			"v switches in a log.",
 		value: func(s settings.Settings) string {
 			if s.FullLogLines {
 				return "As logged"
@@ -78,12 +85,15 @@ var settingItems = []settingItem{
 			return "Simplified"
 		},
 		change: func(s *settings.Settings, _ int) { s.FullLogLines = !s.FullLogLines }},
-	{label: "Times in logs", help: "Logs start with the time Docker received each line. t switches in a log.",
+	{section: "Logs", label: "Times in logs",
+		help:   "Logs start with the time Docker received each line. t switches in a log.",
 		toggle: func(s *settings.Settings) *bool { return &s.LogTime }},
-	{label: "Wrap log lines", help: "Logs start wrapping long lines, rather than scrolling sideways. w switches in a log.",
+	{section: "Logs", label: "Wrap log lines",
+		help:   "Logs start wrapping long lines, rather than scrolling sideways. w switches in a log.",
 		toggle: func(s *settings.Settings) *bool { return &s.WrapLogs }},
-	{label: "Test output", help: "Where tests' own output goes: to the containers' logs only, or into Gradle's output " +
-		"too. Applies from the next run.",
+	{section: "Runs", label: "Test output",
+		help: "Where tests' own output goes: to the containers' logs only, or into Gradle's output " +
+			"too. Applies from the next run.",
 		value: func(s settings.Settings) string {
 			if s.ShowTestOutput {
 				return "Gradle's output too"
@@ -91,8 +101,9 @@ var settingItems = []settingItem{
 			return "Service logs"
 		},
 		change: func(s *settings.Settings, _ int) { s.ShowTestOutput = !s.ShowTestOutput }},
-	{label: "Containers", help: "Follow the containers the run starts, or every container on the machine. Applies " +
-		"from the next start.",
+	{section: "Runs", label: "Containers",
+		help: "Follow the containers the run starts, or every container on the machine. Applies " +
+			"from the next start.",
 		value: func(s settings.Settings) string {
 			if s.AllContainers {
 				return "Every container"
@@ -100,8 +111,9 @@ var settingItems = []settingItem{
 			return "The run's"
 		},
 		change: func(s *settings.Settings, _ int) { s.AllContainers = !s.AllContainers }},
-	{label: "Notifications", help: "A desktop notification when a run ends, through your terminal (iTerm2, WezTerm, " +
-		"Ghostty, kitty, Windows Terminal and more): while you are in another window, always, or never.",
+	{section: "Runs", label: "Notifications",
+		help: "A desktop notification when a run ends, through your terminal (iTerm2, WezTerm, " +
+			"Ghostty, kitty, Windows Terminal and more): while you are in another window, always, or never.",
 		value: func(s settings.Settings) string { return notifyLabels[s.Notify] },
 		change: func(s *settings.Settings, step int) {
 			s.Notify = choice([]string{"away", "always", "off"}, s.Notify, step)
@@ -110,6 +122,31 @@ var settingItems = []settingItem{
 
 var notifyLabels = map[string]string{"away": "When away", "always": "Always", "off": "Off"}
 
+// integrations are the services testdash reads more than the logs of; each can be hidden.
+var integrations = []struct {
+	label string
+	kinds []string
+}{
+	{"WireMock", []string{"wiremock"}}, {"Kafka", []string{"kafka"}}, {"MariaDB and MySQL", []string{"mariadb", "mysql"}},
+	{"Postgres", []string{"postgres"}}, {"MongoDB", []string{"mongodb"}}, {"Redis", []string{"redis"}},
+}
+
+func init() {
+	for _, integration := range integrations {
+		integration := integration
+		settingItems = append(settingItems, settingItem{section: "Integrations", label: integration.label,
+			help: integration.label + " containers, with their requests, messages, queries or commands. Hidden, " +
+				"testdash leaves them alone: they are not listed, followed, or changed to log what they do.",
+			value: func(s settings.Settings) string {
+				if s.Hidden(integration.kinds[0]) {
+					return "Hidden"
+				}
+				return "Shown"
+			},
+			change: func(s *settings.Settings, _ int) { s.Hide(integration.kinds, !s.Hidden(integration.kinds[0])) }})
+	}
+}
+
 // settingsForm shows and changes the settings, saving each change as it is made.
 type settingsForm struct {
 	values   settings.Settings
@@ -117,7 +154,16 @@ type settingsForm struct {
 	status   string
 	failed   bool
 	onChange func(settings.Settings)
-	rowsAt   int // the first row's line in the last render
+	rowsAt   int        // the first row's line in the last render
+	offset   int        // the first line of rows shown, when they do not all fit
+	lines    []formLine // the rows and their sections' headings, as the last render laid them out
+	shown    int        // how many of them it showed
+}
+
+// formLine is a setting's row, or a section's heading (item -1).
+type formLine struct {
+	item int
+	text string
 }
 
 func newSettingsForm(values settings.Settings, onChange func(settings.Settings)) *settingsForm {
@@ -185,14 +231,39 @@ func (f *settingsForm) render(width, height int) []string {
 	var rows []string
 	rows = append(rows, style.Muted.Render("Choose with ↑ ↓, change with ← → or space."), "")
 	f.rowsAt = len(rows)
-	for i, item := range f.items() {
-		rows = append(rows, f.row(i, item, formWidth))
+	help := wrapLines(f.items()[f.cursor].help, formWidth-2)
+	items := f.items()
+	f.lines = nil
+	cursorLine := 0
+	for i, item := range items {
+		if i == 0 || item.section != items[i-1].section {
+			if i > 0 {
+				f.lines = append(f.lines, formLine{-1, ""})
+			}
+			f.lines = append(f.lines, formLine{-1, " " + section(item.section, formWidth-2, "")})
+		}
+		if i == f.cursor {
+			cursorLine = len(f.lines)
+		}
+		f.lines = append(f.lines, formLine{i, f.row(i, item, formWidth)})
+	}
+	f.shown = max(4, min(len(f.lines), height-f.rowsAt-max(4, len(help)+1)-1)) // the rows scroll in a short terminal
+	top := cursorLine
+	for top > 0 && f.lines[top-1].item < 0 && f.lines[top-1].text != "" {
+		top-- // with its section's heading
+	}
+	f.offset = max(0, min(f.offset, top, len(f.lines)-f.shown))
+	if cursorLine >= f.offset+f.shown {
+		f.offset = cursorLine - f.shown + 1
+	}
+	for _, line := range f.lines[f.offset:min(len(f.lines), f.offset+f.shown)] {
+		rows = append(rows, line.text)
 	}
 	rows = append(rows, "")
-	for _, line := range wrapLines(f.items()[f.cursor].help, formWidth-2) {
+	for _, line := range help {
 		rows = append(rows, " "+style.Muted.Render(line))
 	}
-	for len(rows) < f.rowsAt+len(settingItems)+5 {
+	for len(rows) < f.rowsAt+f.shown+4 {
 		rows = append(rows, "")
 	}
 	statusStyle := style.Dim
@@ -263,9 +334,12 @@ func (f *settingsForm) preview(width, height int) []string {
 
 // zones makes the rows clickable, area being where the form was drawn.
 func (f *settingsForm) zones(m *Model, area rect) {
-	for i := range f.items() {
-		i := i
-		m.addZone(zone{r: rect{area.x, area.y + f.rowsAt + i, area.w, 1}, click: func(int, int) tea.Cmd {
+	for n, line := range f.lines[f.offset:min(len(f.lines), f.offset+f.shown)] {
+		i := line.item
+		if i < 0 {
+			continue
+		}
+		m.addZone(zone{r: rect{area.x, area.y + f.rowsAt + n, area.w, 1}, click: func(int, int) tea.Cmd {
 			if f.cursor == i {
 				f.change(i, 1)
 			}
@@ -295,6 +369,9 @@ func (m *Model) applySettings(s settings.Settings) {
 	}
 	if old.ShowTestOutput != s.ShowTestOutput {
 		m.opts.ShowTestOutput = s.ShowTestOutput
+	}
+	if !slices.Equal(old.HiddenServices, s.HiddenServices) {
+		m.watcher.SetHidden(s.HiddenServices)
 	}
 	m.tree.flatDirty = true
 	m.version++

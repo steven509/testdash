@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 )
 
 type Settings struct {
@@ -23,10 +24,32 @@ type Settings struct {
 	// Notify asks the terminal for a desktop notification when a run ends: away (while the terminal is in the
 	// background), always or off.
 	Notify string `json:"notify"`
+	// HiddenServices are the kinds of service testdash leaves alone, such as redis: not listed, not followed, and
+	// nothing switched on in them.
+	HiddenServices []string `json:"hiddenServices,omitempty"`
 }
 
 func Defaults() Settings {
 	return Settings{Theme: "Violet", Mouse: true, IconSpacing: 1, Notify: "away"}
+}
+
+// Hidden is whether testdash leaves a kind of service alone.
+func (s Settings) Hidden(kind string) bool {
+	return slices.Contains(s.HiddenServices, kind)
+}
+
+// Hide hides or shows kinds of service.
+func (s *Settings) Hide(kinds []string, hide bool) {
+	var kept []string
+	for _, kind := range s.HiddenServices {
+		if !slices.Contains(kinds, kind) {
+			kept = append(kept, kind)
+		}
+	}
+	if hide {
+		kept = append(kept, kinds...)
+	}
+	s.HiddenServices = kept
 }
 
 // Path is where the settings live.
