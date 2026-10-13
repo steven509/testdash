@@ -9,17 +9,16 @@ Type "testdash"
 Enter
 Wait+Screen@300s /tests ready/
 Sleep 500ms
-Down
-Left
-Down
-Left
-Down
-Left
-Type "g"
-Space
-Sleep 2.5s
 Show
 Sleep 600ms
-Enter
+Type "r"
+Sleep 5s
+Type "]"
+Sleep 7s
+Type "]"
 Wait+Screen@120s /FAILED [0-9]/
-Sleep 3s
+Sleep 1.5s
+Type "]"
+Sleep 1.6s
+Type "]"
+Sleep 2s

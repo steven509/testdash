@@ -6,6 +6,9 @@ Source setup.tape
 Type "testdash"
 Enter
 Wait+Screen@300s /tests ready/
+Type "r"
+Wait+Screen@300s /FAILED [0-9]/
+Sleep 2s
 Type "q"
 Sleep 500ms
 Type "y"

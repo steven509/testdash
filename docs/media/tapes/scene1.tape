@@ -6,42 +6,26 @@ Set Height 812
 Set Framerate 30
 Source setup.tape
 Show
-Sleep 700ms
+Sleep 500ms
 Type "testdash"
-Sleep 400ms
+Sleep 300ms
 Enter
-Sleep 2.4s
+Sleep 2.2s
+Down@150ms
+Left@150ms
+Down@150ms
+Left@150ms
+Down@150ms
+Left@150ms
 Down
-Sleep 250ms
-Left
-Sleep 350ms
-Down
-Sleep 200ms
-Left
-Sleep 350ms
-Down
-Sleep 200ms
-Left
-Sleep 500ms
-Down
-Sleep 400ms
-Space
-Sleep 900ms
-Down@110ms 9
 Sleep 300ms
 Space
-Sleep 300ms
-Space
-Sleep 300ms
-Space
-Sleep 900ms
-Type "/"
-Sleep 300ms
-Type@110ms "refund"
-Sleep 1.4s
-Escape
 Sleep 600ms
-Type "g"
+Down@90ms 9
+Space@250ms 3
+Sleep 700ms
+Type "/"
+Type@90ms "refund"
+Sleep 1.1s
+Escape
 Sleep 500ms
-Space
-Sleep 1.5s

@@ -13,18 +13,19 @@ Type "r"
 Wait+Screen@120s /FAILED [0-9]/
 Sleep 6s
 Show
-Sleep 800ms
+Sleep 600ms
 Type "s"
-Sleep 1.2s
-Down@400ms 4
-Sleep 2.5s
-Type "3"
-Sleep 400ms
-Down@140ms 14
+Sleep 600ms
+Down@250ms 4
 Sleep 1.8s
-Up
+Type "t"
 Sleep 2.2s
+Type "t"
+Type "3"
+Down@60ms 14
+Up
+Sleep 1s
 Enter
-Sleep 900ms
+Sleep 500ms
 Type "z"
-Sleep 3s
+Sleep 2.2s
