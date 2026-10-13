@@ -3,7 +3,6 @@ package ui
 import (
 	"fmt"
 	"image/color"
-	"sort"
 	"strings"
 	"time"
 
@@ -423,83 +422,20 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 	return b.String()
 }
 
-// liveFeed is the newest of everything the run shows, in time order: Gradle's output, the applications' logs
-// (and other services' warnings), requests, messages and queries.
+// liveFeed is the newest of everything the run shows, one line each.
 func (m *Model) liveFeed(n, width int) string {
-	var events []timelineEvent
-	add := func(at time.Time, source string, c color.Color, summary string) {
-		if !at.IsZero() && !at.Before(m.runStarted.Add(-correlationSlack)) {
-			events = append(events, timelineEvent{at: at, source: source, color: c, summary: summary})
-		}
-	}
-	for _, line := range lastN(m.output.all(), n) {
-		if text := strings.TrimSpace(cleanText(line.Text)); text != "" {
-			add(line.At, "gradle", style.Primary, text)
-		}
-	}
-	for _, entry := range m.orderedServices() {
-		key := entry.svc.Key
-		switch v := entry.view.(type) {
-		case *wiremockView:
-			for _, e := range lastN(v.events, n) {
-				if v.isNoise(e) {
-					continue
-				}
-				summary := style.Bold.Render(cleanText(e.Method)) + " " + cleanText(e.URL) + " " + httpStatus(e.Status)
-				if !e.Matched {
-					summary += style.Red.Render("  no stub")
-				}
-				add(e.At, key, style.Teal, summary)
-			}
-		case *kafkaView:
-			for _, message := range lastN(v.messages, n) {
-				if v.isNoise(message) {
-					continue
-				}
-				add(message.At, key, style.Pink, style.Bold.Render(cleanText(message.Topic))+"  "+
-					style.Dim.Render(preview(message.Value, 80)))
-			}
-		case *dbView:
-			found := 0
-			for i := len(v.queries) - 1; i >= 0 && found < n; i-- {
-				if q := v.queries[i]; !v.isNoise(q) {
-					text := cleanText(q.Text)
-					summary := preview(&text, 120)
-					if q.Target != "" {
-						summary = style.Bold.Render(q.Kind+" "+q.Target) + "  " + style.Dim.Render(preview(&text, 100))
-					}
-					add(q.At, key, style.Orange, summary)
-					found++
-				}
-			}
-		default:
-			lines := entry.lines.all()
-			found := 0
-			for i := len(lines) - 1; i >= 0 && found < n && i >= len(lines)-20*n; i-- {
-				line := lines[i]
-				if log, ok := entry.view.(*logView); !feedWorthy(line, entry.svc.IsApp()) || ok && log.isNoise(line) {
-					continue
-				}
-				first, _, _ := strings.Cut(line.Render(true, false), "\n")
-				c := style.MutedText
-				if entry.svc.IsApp() {
-					c = style.Warn
-				}
-				add(line.At, key, c, first)
-				found++
-			}
-		}
-	}
-	sort.SliceStable(events, func(i, j int) bool { return events[i].at.Before(events[j].at) })
 	var b strings.Builder
-	for _, ev := range lastN(events, n) {
-		source := style.Pill(fit(cleanText(ev.source), 10, true), ev.color, style.Tint(ev.color))
-		b.WriteString(fit(style.Dim.Render(clock(ev.at))+" "+source+" "+ev.summary, width, true) + "\n")
+	for _, ev := range m.feed(n) {
+		b.WriteString(fit(style.Dim.Render(clock(ev.at))+" "+feedSource(ev)+" "+ev.summary, width, true) + "\n")
 	}
-	if len(events) == 0 {
+	if b.Len() == 0 {
 		b.WriteString(style.Dim.Render("Nothing yet.") + "\n")
 	}
 	return b.String()
+}
+
+func feedSource(ev timelineEvent) string {
+	return style.Pill(fit(cleanText(ev.source), 10, true), ev.color, style.Tint(ev.color))
 }
 
 // feedWorthy is whether a log line belongs in the live feed: an application's records and lines that are not

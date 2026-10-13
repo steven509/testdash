@@ -301,90 +301,30 @@ func (m *Model) collect(w *window, logs func(*logformat.Line) bool, keep func(*t
 		}
 	}
 	for _, entry := range m.orderedServices() {
-		entry := entry
 		switch v := entry.view.(type) {
 		case *wiremockView:
 			for _, e := range v.eventsBetween(w) {
-				e := e
-				summary := style.Bold.Render(cleanText(e.Method)) + " " + cleanText(e.URL) + " " + httpStatus(e.Status)
-				if !e.Matched {
-					summary += style.Red.Render("  no stub")
-				}
-				add(timelineEvent{at: e.At, source: "HTTP", color: style.Teal, summary: summary,
-					service: entry, reveal: func() { v.requests.selectKey("r:" + e.ID) },
-					detail: func() string { return describeRequest(e, nil) },
-					copy:   copyable{"request as curl", curlCommand(e, v.client.BaseURL())}, trace: requestTrace(e),
-					noise: requestNoiseText(e)})
+				add(requestEvent(entry, v, e))
 			}
 		case *kafkaView:
 			for _, message := range v.messagesBetween(w) {
-				message := message
-				summary := style.Bold.Render(cleanText(message.Topic)) + "  " + style.Dim.Render(preview(message.Value, 80))
-				event := timelineEvent{at: message.At, source: "KAFKA", color: style.Pink, summary: summary,
-					service: entry, reveal: func() { v.table.selectKey(messageKey(message)) },
-					detail: func() string { return describeMessage(message) }}
-				if message.Value != nil {
-					event.copy = copyable{"payload", *message.Value}
-				}
-				event.noise = messageNoiseText(message)
-				event.trace = messageTrace(message)
-				add(event)
+				add(messageEvent(entry, v, message))
 			}
 		case *dbView:
-			source := map[string]string{"mongodb": "MONGO", "redis": "REDIS"}[v.kind]
-			if source == "" {
-				source = "SQL"
-			}
-			one, _ := v.noun()
 			for _, q := range v.queriesBetween(w) {
-				q := q
-				text := cleanText(q.Text)
-				summary := preview(&text, 100)
-				if q.Target != "" {
-					summary = style.Bold.Render(q.Kind+" "+q.Target) + "  " + style.Dim.Render(preview(&text, 80))
-				}
-				context, _ := trace.FromText(q.Text)
-				add(timelineEvent{at: q.At, source: source, color: style.Orange, summary: summary,
-					service: entry, reveal: func() { v.selectQuery(q) },
-					detail: func() string { return describeQuery(q, entry.svc.Kind) }, copy: copyable{one, q.Text},
-					trace: context, noise: queryNoiseText(q)})
+				add(queryEvent(entry, v, q))
 			}
 		default:
 			if !entry.svc.IsApp() {
 				continue
 			}
 			lines := entry.lines.all()
+			log, _ := entry.view.(*logView)
 			for i, line := range lines {
-				if line.At.IsZero() || !w.holds(line.At) || !logs(line) {
+				if line.At.IsZero() || !w.holds(line.At) || !logs(line) || log != nil && log.isNoise(line) {
 					continue
 				}
-				if log, ok := entry.view.(*logView); ok && log.isNoise(line) {
-					continue
-				}
-				record := line.Record()
-				level, message := "WARN", cleanText(line.Text)
-				if record != nil {
-					level, message = record.Level, cleanText(strings.SplitN(record.Message, "\n", 2)[0])
-				}
-				color := style.MutedText
-				switch level {
-				case "ERROR", "FATAL":
-					color = style.Fail
-				case "WARN":
-					color = style.Warn
-				}
-				follow := continuation(lines, i)
-				context, _ := trace.FromText(line.Text)
-				add(timelineEvent{at: line.At, source: "LOG", color: color, trace: context, noise: lineNoiseText(line),
-					summary: style.Fg(color).Render(level) + " " + message, service: entry,
-					detail: func() string {
-						var b strings.Builder
-						b.WriteString(line.Render(m.logSimple, true))
-						for _, more := range follow {
-							b.WriteString("\n" + more.Render(m.logSimple, false))
-						}
-						return b.String()
-					}})
+				add(m.logEvent(entry, lines, i))
 			}
 		}
 	}
