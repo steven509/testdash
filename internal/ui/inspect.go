@@ -621,7 +621,7 @@ func (m *Model) welcome(width int) string {
 		{"space", "select the test or class under the cursor"},
 		{"enter", "run the selection, or else the test or class under the cursor"},
 		{"/", "filter the tests by name"},
-		{"s", "show only failed or unfinished tests"},
+		{"s", "show only failed, unfinished or flaky tests"},
 		{"tab", "move between the tests, services and these details"},
 		{"^t", "choose another test task"},
 		{"?", "every key"},

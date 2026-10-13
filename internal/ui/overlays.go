@@ -75,6 +75,7 @@ func (m *Model) commands() []command {
 		command{"Zoom the details", "Give the details the whole width (z)", func() tea.Cmd { m.zoomed = !m.zoomed; return nil }},
 		command{"Simplified or full log lines", "Every log (v)", func() tea.Cmd { m.logSimple = !m.logSimple; return nil }},
 		command{"Times in logs", "Every log (t)", func() tea.Cmd { m.logTime = !m.logTime; return nil }},
+		command{"Runs", "The runs before, their failures, to run again (H)", func() tea.Cmd { m.openRuns(); return nil }},
 		command{"Settings", "Icons, colours, mouse, log defaults", func() tea.Cmd { m.openSettings(); return nil }},
 		command{"Help", "Every key (?)", func() tea.Cmd { m.popup = &help{}; return nil }},
 		command{"Quit", "Stop the run and leave", m.quit},
@@ -277,7 +278,7 @@ var helpSections = []struct {
 	keys  [][2]string
 }{
 	{"Anywhere", [][2]string{{"tab", "next panel"}, {"1 2 3", "tests, services, details"}, {"r", "run the selection, or all"},
-		{"F", "run the failed tests"}, {"x", "stop (twice kills)"}, {"z", "zoom the details"}, {"c", "the run's whole command"}, {"^t", "test task"},
+		{"F", "run the failed tests"}, {"x", "stop (twice kills)"}, {"z", "zoom the details"}, {"c", "the run's whole command"}, {"^t", "test task"}, {"H", "runs before this one"},
 		{"^p :", "commands"}, {"^s", "settings"}, {"q", "quit (asks first)"}}},
 	{"Tests", [][2]string{{"↑ ↓", "move"}, {"← →", "collapse, expand"}, {"space", "select"}, {"a", "select all shown"}, {"u", "unselect the passed"},
 		{"enter", "run the selection, or this test or class"}, {"/", "filter by name"}, {"s", "all, failed, not passed, flaky"},

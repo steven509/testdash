@@ -242,3 +242,106 @@ func (m *Model) sinceLastRun(width int) string {
 	}
 	return b.String()
 }
+
+// runList is the build's runs, newest first, with the failures of the one under the cursor, which enter runs again.
+type runList struct {
+	cursor int
+}
+
+func (m *Model) openRuns() {
+	if len(m.runs) == 0 {
+		m.notify("No runs kept yet: the history starts with the next run", "", "information")
+		return
+	}
+	m.popup = &runList{}
+}
+
+func (l *runList) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
+	switch k.String() {
+	case "esc", "q", "H":
+		m.popup = nil
+	case "up", "k":
+		l.cursor = max(0, l.cursor-1)
+	case "down", "j":
+		l.cursor = min(len(m.runs)-1, l.cursor+1)
+	case "enter", "r":
+		return l.rerun(m)
+	case "ctrl+c":
+		m.popup = &confirmQuit{}
+	}
+	return nil
+}
+
+// rerun runs a run's failed tests again, those the build still has.
+func (l *runList) rerun(m *Model) tea.Cmd {
+	failed := map[string]bool{}
+	for _, result := range m.runs[l.cursor].Tests {
+		if (result.Status == "failed" || result.Status == "aborted") && m.selectable[result.ID] {
+			failed[result.ID] = true
+		}
+	}
+	if len(failed) == 0 {
+		m.notify("No failures of that run to run again", "", "information")
+		return nil
+	}
+	m.popup = nil
+	return m.startRun(failed)
+}
+
+func (l *runList) render(m *Model, screen []string) {
+	width := min(100, m.width-4)
+	inner := width - 4
+	rows := min(len(m.runs), max(3, m.height/2-6))
+	start := max(0, l.cursor-rows+1)
+	var content []string
+	for i := start; i < start+rows; i++ {
+		run := m.runs[i]
+		counts := map[string]int{}
+		for _, result := range run.Tests {
+			counts[result.Status]++
+		}
+		failed := counts["failed"] + counts["aborted"]
+		result := style.Green.Render(ic.passed + " " + compact(counts["passed"]))
+		if failed > 0 {
+			result += "  " + style.Red.Render(ic.failed+" "+compact(failed))
+		}
+		if run.Stopped {
+			result += "  " + style.Yellow.Render("stopped")
+		}
+		left := fit(runLabel(&run), 36, true) + "  " + fit(cleanText(run.Task), 18, true) + "  " + result
+		content = append(content, menuRow(left, duration(run.Took), inner, i == l.cursor))
+	}
+	content = append(content, "", section("Failures", inner, ""))
+	var failures []string
+	for _, result := range m.runs[l.cursor].Tests {
+		if result.Status != "failed" && result.Status != "aborted" {
+			continue
+		}
+		name := result.ID
+		if entry := m.entries[result.ID]; entry != nil {
+			name = strings.Join(append(m.groupOf(entry), cleanText(entry.Name)), " › ")
+		}
+		failures = append(failures, style.Red.Render(ic.failed+" ")+fit(name, inner-2, true),
+			"  "+style.Dim.Render(fit(cleanText(result.Failure), inner-2, true)))
+	}
+	switch {
+	case len(failures) == 0:
+		content = append(content, style.Muted.Render("None"))
+	case len(failures) > 12:
+		content = append(append(content, failures[:12]...),
+			style.Dim.Render(fmt.Sprintf("and %s more", number(len(failures)/2-6))))
+	default:
+		content = append(content, failures...)
+	}
+	content = append(content, "", style.Dim.Render("enter runs its failures again · esc closes"))
+	area := m.dialog(screen, content, width, "Runs", -1)
+	m.addZone(zone{r: area, click: func(_, y int) tea.Cmd {
+		if i := start + y - 1; y >= 1 && i < start+rows {
+			if i == l.cursor {
+				return l.rerun(m)
+			}
+			l.cursor = i
+		}
+		return nil
+	}})
+}

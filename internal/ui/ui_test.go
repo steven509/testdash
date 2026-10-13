@@ -1086,6 +1086,27 @@ func TestSinceTheLastRun(t *testing.T) {
 	}
 }
 
+func TestTheRunsBefore(t *testing.T) {
+	m := testModel(t)
+	m.opts.Command = []string{"true"}
+	at := time.Date(2026, 10, 12, 9, 30, 0, 0, time.Local)
+	m.setRuns([]history.Run{
+		{Started: at.Add(time.Hour), Task: ":test", Took: 23000, Tests: []history.Result{{ID: "t1", Status: "passed"},
+			{ID: "t3", Status: "failed", Failure: "AssertionError: boom"}, {ID: "gone", Status: "failed"}}},
+		{Started: at, Task: ":test", Took: 21000, Tests: []history.Result{{ID: "t1", Status: "passed"}}}})
+	press(m, "H")
+	s := screen(m)
+	for _, want := range []string{"12 Oct 10:30", "12 Oct 09:30", "23s", "FooTest › when inner › three", "AssertionError: boom"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the runs lack %q:\n%s", want, s)
+		}
+	}
+	press(m, "enter")
+	if m.popup != nil || len(m.lastSelection) != 1 || !m.lastSelection["t3"] {
+		t.Errorf("enter runs the failures the build still has: %v", m.lastSelection)
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {

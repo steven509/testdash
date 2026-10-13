@@ -328,6 +328,7 @@ func (m *Model) globalLevel() level {
 			when(func() bool { return !m.running() && hasFailures() }),
 		bind("x", "Stop", func() tea.Cmd { m.stop(); return nil }).when(m.busy),
 		bind("ctrl+t", "Task", func() tea.Cmd { m.openTasks(); return nil }).hidden(),
+		bind("H", "Runs", func() tea.Cmd { m.openRuns(); return nil }).hidden(),
 		bind("c", "Command", func() tea.Cmd { m.fullCommand = !m.fullCommand; return nil }).hidden().
 			when(func() bool { return m.detailFrom == panelTests && m.tree.cursor == "" && !m.runStarted.IsZero() }),
 		bind("?", "Help", func() tea.Cmd { m.popup = &help{}; return nil }).hidden(),

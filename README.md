@@ -29,7 +29,9 @@ and red once one fails. Click the task to choose another.
 result and time from the last run. The first row, *All tests*, is the run as a whole, and while a run goes it is its *Overview*. `space` selects a test or
 a class (`●` marks what is selected, `◐` a class partly selected), and `enter` or `r` runs the selection. With nothing selected, `enter` runs the
 test or class under the cursor and `r` runs everything. `/` filters by name (case, spaces and punctuation ignored) and `s` shows
-only the failed or unfinished tests, or the flaky ones (marked `≈`).
+only the failed or unfinished tests, or the flaky ones (marked `≈`). `H` lists the runs before, each with its
+failures, which `enter` runs again; a test's details show its last results, and after a run the overview says
+what changed since the last one.
 
 <p align="center">
   <img src="docs/images/pick.png" width="880" alt="Picking tests: one class selected, another partly, three closed">
