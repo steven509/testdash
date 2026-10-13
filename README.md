@@ -211,6 +211,11 @@ in the database's dialect, run in [goja](https://github.com/dop251/goja), and co
 [chroma](https://github.com/alecthomas/chroma). `c` copies with the system's clipboard command (`pbcopy`,
 `wl-copy`, `xclip`, `xsel` or `clip.exe`), or over SSH with the terminal's own clipboard (OSC 52).
 
+**History** is kept per build under `~/.cache/testdash/history`, a gzipped JSON file per run with each test's
+result and time, the commit and whether the working tree had changes; the newest 200 runs of the last 90 days
+stay. A test is flaky when it passed and failed on one commit with a clean working tree, or passed when a retry
+plugin ran it again; slower when it took more than twice its median time and 200ms more.
+
 **Kafka** is read with its own tools in its container. One `kafka-console-consumer` follows every topic with a
 formatter that prints each message as JSON with its topic (`internal/kafka/formatter/TestdashFormatter.java`,
 compiled once against a kafka-clients jar and copied into the container). Topics and consumer group lag are
