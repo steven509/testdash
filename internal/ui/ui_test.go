@@ -1045,6 +1045,31 @@ func TestATestsHistory(t *testing.T) {
 	}
 }
 
+func TestFlakyTests(t *testing.T) {
+	m := testModel(t)
+	run := func(status string) history.Run {
+		return history.Run{Started: time.Now(), Commit: "abc", Tests: []history.Result{{ID: "t3", Status: status},
+			{ID: "t1", Status: "passed"}}}
+	}
+	m.setRuns([]history.Run{run("failed"), run("passed")})
+	if !strings.Contains(screen(m), "three ≈") || strings.Contains(screen(m), "one ≈") {
+		t.Errorf("a test that passed and failed on one commit is marked flaky:\n%s", screen(m))
+	}
+	press(m, "s", "s", "s")
+	if m.tree.show != "flaky" {
+		t.Fatalf("s goes on to the flaky tests: %s", m.tree.show)
+	}
+	var shown []string
+	for _, line := range m.tree.lines() {
+		if m.selectable[line.id] {
+			shown = append(shown, line.id)
+		}
+	}
+	if strings.Join(shown, " ") != "t3" {
+		t.Errorf("only the flaky tests show: %v", shown)
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {

@@ -166,7 +166,8 @@ type Model struct {
 	runs          []history.Run // the build's runs, newest first
 	recorded      []history.Run // the runs since testdash started
 	historyIndex  history.Index
-	runCommit     string // the commit the run's code was at, and whether the working tree had changes
+	flaky         map[string]bool // the tests the history says are flaky
+	runCommit     string          // the commit the run's code was at, and whether the working tree had changes
 	runDirty      bool
 	runFilters    []string
 	stopRequested bool

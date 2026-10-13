@@ -7,7 +7,7 @@ import "strings"
 type iconSet struct {
 	caretClosed, caretOpen                                   string
 	unpicked, picked, partly                                 string // a row's selection mark
-	passed, failed, aborted, skipped, pending, idle          string
+	passed, failed, aborted, skipped, pending, idle, flaky   string
 	logo, search, gear, warning, clock, check                string
 	app, http, kafka, database, output, log, command, server string
 }
@@ -15,7 +15,7 @@ type iconSet struct {
 var unicodeIcons = iconSet{
 	caretClosed: "▸", caretOpen: "▾",
 	unpicked: "○", picked: "●", partly: "◐",
-	passed: "✔", failed: "✘", aborted: "⚠", skipped: "↷", pending: "○", idle: "·",
+	passed: "✔", failed: "✘", aborted: "⚠", skipped: "↷", pending: "○", idle: "·", flaky: "≈",
 	logo: "◆", search: "⌕", gear: "⚙", warning: "⚠", clock: "◷", check: "✔",
 	app: "★", http: "⇄", kafka: "≋", database: "▦", output: "≡", log: "≡", command: "$", server: "■",
 }
@@ -34,6 +34,7 @@ var nerdIcons = iconSet{
 	skipped:  "\uead6", // cod-debug_step_over
 	pending:  "\uf4c3", // oct-dot
 	idle:     "·",
+	flaky:    "≈",
 	logo:     "\uea79", // cod-beaker
 	search:   "\uea6d", // cod-search
 	gear:     "\ueaf8", // cod-gear

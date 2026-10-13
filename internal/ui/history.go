@@ -49,6 +49,16 @@ func (m *Model) historyLoaded(msg historyMsg) {
 func (m *Model) setRuns(runs []history.Run) {
 	m.runs = runs[:min(len(runs), keepRuns)]
 	m.historyIndex = history.NewIndex(m.runs)
+	m.flaky = map[string]bool{}
+	for id, points := range m.historyIndex {
+		if history.Summarise(points).Flaky {
+			m.flaky[id] = true
+		}
+	}
+	if m.tree.show == "flaky" {
+		m.tree.rebuild(m, false)
+	}
+	m.tree.flatDirty = true
 	m.version++
 }
 

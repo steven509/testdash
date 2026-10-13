@@ -13,7 +13,7 @@ import (
 
 var (
 	notSearched = regexp.MustCompile(`[^a-z0-9]`) // spaces and punctuation: "signup" finds "a sign-up stores"
-	showModes   = []string{"all", "failed", "not passed"}
+	showModes   = []string{"all", "failed", "not passed", "flaky"}
 )
 
 func searchable(text string) string {
@@ -144,6 +144,8 @@ func (t *testTree) wanted(m *Model, e *catalog.Entry) bool {
 		return status == "failed" || status == "aborted"
 	case "not passed":
 		return status != "passed" && status != "skipped"
+	case "flaky":
+		return m.flaky[e.ID]
 	}
 	return true
 }
@@ -440,6 +442,8 @@ func (t *testTree) rows(m *Model, r rect, focused bool) []string {
 			out = append(out, "", style.Muted.Render("  No test matches "+t.text+"."))
 		case t.show == "failed":
 			out = append(out, "", style.Muted.Render("  No test has failed."), style.Dim.Render("  s shows the others"))
+		case t.show == "flaky":
+			out = append(out, "", style.Muted.Render("  No test has been flaky."), style.Dim.Render("  s shows them all"))
 		case t.show != "all":
 			out = append(out, "", style.Muted.Render("  Every test has passed."), style.Dim.Render("  s shows them all"))
 		}
@@ -469,6 +473,9 @@ func (t *testTree) row(m *Model, line treeLine, width int, isCursor, focused boo
 	name := t.name(m, line.id)
 	if picked > 0 && total > 0 && picked == total {
 		name = style.AccentText.Render(ansi.Strip(name))
+	}
+	if m.flaky[line.id] {
+		name += style.Yellow.Render(" " + ic.flaky)
 	}
 	left := mark + " " + indent + caret + statusStyle.Render(status) + " " + name
 	right := t.right(m, line.id)

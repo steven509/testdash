@@ -29,7 +29,7 @@ and red once one fails. Click the task to choose another.
 result and time from the last run. The first row, *All tests*, is the run as a whole, and while a run goes it is its *Overview*. `space` selects a test or
 a class (`●` marks what is selected, `◐` a class partly selected), and `enter` or `r` runs the selection. With nothing selected, `enter` runs the
 test or class under the cursor and `r` runs everything. `/` filters by name (case, spaces and punctuation ignored) and `s` shows
-only the failed or unfinished tests.
+only the failed or unfinished tests, or the flaky ones (marked `≈`).
 
 <p align="center">
   <img src="docs/images/pick.png" width="880" alt="Picking tests: one class selected, another partly, three closed">
@@ -94,7 +94,7 @@ file is up, the dashboard says which container (or process) holds the port.
 | Where | Keys |
 |---|---|
 | Anywhere | `tab` next panel · `1` `2` `3` tests, services, details · `r` run the selection, or all · `F` run the failed tests · `x` stop (twice kills) · `z` zoom the details · `c` the run's whole command · `ctrl+t` test task · `ctrl+p` or `:` commands · `ctrl+s` settings · `?` keys · `q` quit, after asking |
-| Tests | ↑/↓ move · ←/→ collapse, expand · `space` select · `a` select all shown · `u` unselect the tests that passed · `enter` run the selection, or with none, this test or class · `/` filter · `s` all, failed or not passed · Esc clears the filter, then the selection |
+| Tests | ↑/↓ move · ←/→ collapse, expand · `space` select · `a` select all shown · `u` unselect the tests that passed · `enter` run the selection, or with none, this test or class · `/` filter · `s` all, failed, not passed or flaky · Esc clears the filter, then the selection |
 | A test's details | ↑/↓ the events while it ran · `enter` open the event in its service · `tab` the event, the stack trace · Esc back |
 | Logs | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · ←/→ scroll sideways · Home/End |
 | Services | `[` `]` or ←/→ tabs · ↑/↓ a row, its details beside it · WireMock `u` unmatched only · Kafka `h` a message's headers or value, `enter` on a topic shows its messages · databases `n` session chatter |

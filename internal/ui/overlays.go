@@ -280,7 +280,7 @@ var helpSections = []struct {
 		{"F", "run the failed tests"}, {"x", "stop (twice kills)"}, {"z", "zoom the details"}, {"c", "the run's whole command"}, {"^t", "test task"},
 		{"^p :", "commands"}, {"^s", "settings"}, {"q", "quit (asks first)"}}},
 	{"Tests", [][2]string{{"↑ ↓", "move"}, {"← →", "collapse, expand"}, {"space", "select"}, {"a", "select all shown"}, {"u", "unselect the passed"},
-		{"enter", "run the selection, or this test or class"}, {"/", "filter by name"}, {"s", "all, failed, not passed"},
+		{"enter", "run the selection, or this test or class"}, {"/", "filter by name"}, {"s", "all, failed, not passed, flaky"},
 		{"c", "copy a failed test's failure"}, {"esc", "clear"}}},
 	{"A test's details", [][2]string{{"↑ ↓", "events while it ran"}, {"enter", "open the event in its service"},
 		{"c", "copy: curl, query, command, payload"}, {"tab", "the event, the stack trace"}, {"esc", "back to the tests"}}},
