@@ -13,6 +13,9 @@ in Docker with its services, and runs its tests against it. To watch, run `testd
 | MongoDB | Keeps the customers and an audit log |
 | Redis | Keeps carts, and caches products in front of MariaDB; it has a password |
 
+Most tests are JUnit 5 classes; `src/test/resources/features/checkout.feature` is Cucumber, with a background, a
+scenario outline and a rule, run through a JUnit Platform suite (`RunCucumberTests`) with Cucumber's long names.
+
 Three tests fail on purpose, each for a reason testdash shows:
 
 - `applies a loyalty discount`: the shop ignores coupon codes in lower case, and logs a warning saying so.

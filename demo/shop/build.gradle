@@ -12,6 +12,10 @@ dependencies {
     implementation 'org.slf4j:slf4j-api:2.0.18'
     testImplementation platform('org.junit:junit-bom:5.12.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'org.junit.platform:junit-platform-suite'
+    testImplementation platform('io.cucumber:cucumber-bom:7.18.1')
+    testImplementation 'io.cucumber:cucumber-java'
+    testImplementation 'io.cucumber:cucumber-junit-platform-engine'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
@@ -29,4 +33,6 @@ tasks.register('composeUp', Exec) {
 test {
     useJUnitPlatform()
     dependsOn 'composeUp'
+    // Cucumber's long names repeat the feature in each scenario's, as many builds have them
+    systemProperty 'cucumber.junit-platform.naming-strategy', 'long'
 }
