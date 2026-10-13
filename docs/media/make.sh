@@ -17,8 +17,10 @@ mkdir -p "$work/bin" "$work/home/.config/testdash" "$work/gradle/wrapper" "$work
 "$repo/demo/shop/libs.sh"
 real_gradle=${GRADLE_USER_HOME:-$HOME/.gradle}
 [[ -e "$work/gradle/wrapper/dists" ]] || ln -s "$real_gradle/wrapper/dists" "$work/gradle/wrapper/dists"
-# testdash compiles its JUnit listener against the JUnit jars in ~/.gradle, which the demo's HOME has to reach
-[[ -e "$work/home/.gradle" ]] || ln -s "$real_gradle" "$work/home/.gradle"
+# testdash compiles its JUnit listener against the JUnit jars in Gradle's cache, which the demo's Gradle home shares
+modules="$work/gradle/caches/modules-2"
+mkdir -p "$work/gradle/caches"
+[[ -L $modules ]] || { rm -rf "$modules" && ln -s "$real_gradle/caches/modules-2" "$modules"; }
 cp "$media"/tapes/*.tape "$work/tapes/"
 
 # setup.tape starts each recording's shell; its arguments are more variables to export, such as TESTDASH_KEYCAST=1

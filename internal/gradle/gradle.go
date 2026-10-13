@@ -48,9 +48,17 @@ func unavailable(format string, args ...any) error {
 	return &ErrUnavailable{Reason: fmt.Sprintf(format, args...)}
 }
 
+// GradleCache is where Gradle keeps the jars it downloads, under GRADLE_USER_HOME when that is set.
 func GradleCache() string {
+	return filepath.Join(gradleUserHome(), "caches", "modules-2", "files-2.1")
+}
+
+func gradleUserHome() string {
+	if dir := os.Getenv("GRADLE_USER_HOME"); dir != "" {
+		return dir
+	}
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".gradle", "caches", "modules-2", "files-2.1")
+	return filepath.Join(home, ".gradle")
 }
 
 func IsGradle(command []string) bool {

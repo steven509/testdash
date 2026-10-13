@@ -172,7 +172,8 @@ background. A selection becomes `--tests` filters; a whole class also selects it
 
 **Progress** comes from a JUnit listener (`internal/gradle/junit/TestdashListener.java`) the same init script
 puts on every Test task, without changing the build. Both are embedded in the binary, compiled once against JUnit
-jars from your Gradle cache, using only JUnit Platform 1.0 API, and kept in `~/.cache/testdash`.
+jars from your Gradle cache (under `GRADLE_USER_HOME` when that is set), using only JUnit Platform 1.0 API, and
+kept in `~/.cache/testdash`.
 
 **Services** are the containers the run started. When the tests use Testcontainers, the listener reports the
 labels Testcontainers will clean up by, its session id and each Compose project's name (registered before the
