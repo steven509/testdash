@@ -321,18 +321,22 @@ func (m *Model) quit() tea.Cmd {
 // keys
 
 func (m *Model) globalLevel() level {
-	hasFailures := func() bool { return len(m.failedIDs()) > 0 }
+	hasFailures := func() bool { return len(m.rerunnable()) > 0 }
 	run := bind("r", m.runLabel(), func() tea.Cmd { return m.startRun(m.selected) }).when(func() bool { return !m.running() })
 	if m.panelOf(m.focus) == panelTests && len(m.selected) > 0 {
 		run = run.hidden() // enter says the same in the tests
 	}
+	runs := bind("H", "Runs", func() tea.Cmd { m.openRuns(); return nil })
+	if m.panelOf(m.focus) != panelTests || len(m.runs) == 0 {
+		runs = runs.hidden()
+	}
 	return level{bindings: []binding{
 		run,
-		bind("F", "Run failed", func() tea.Cmd { return m.startRun(m.failedIDs()) }).
+		bind("F", "Run failed", func() tea.Cmd { return m.startRun(m.rerunnable()) }).
 			when(func() bool { return !m.running() && hasFailures() }),
 		bind("x", "Stop", func() tea.Cmd { m.stop(); return nil }).when(m.busy),
 		bind("ctrl+t", "Task", func() tea.Cmd { m.openTasks(); return nil }).hidden(),
-		bind("H", "Runs", func() tea.Cmd { m.openRuns(); return nil }).hidden(),
+		runs,
 		bind("c", "Command", func() tea.Cmd { m.fullCommand = !m.fullCommand; return nil }).hidden().
 			when(func() bool { return m.detailFrom == panelTests && m.tree.cursor == "" && !m.runStarted.IsZero() }),
 		bind("?", "Help", func() tea.Cmd { m.popup = &help{}; return nil }).hidden(),

@@ -47,7 +47,8 @@ queries) and a dot for whether it runs.
   sparkline for each source (tests finishing, Gradle, each log, requests, messages, queries) over the run,
   every class on the run's time line (its setup a thin line, then each test coloured by how it did), and while
   it runs, a live feed of the newest from the build and the services. Once it is done, the slowest tests.
-  Before the first run, the keys that get you started.
+  Before the first run, the last run kept, with its failures (`F` runs them again), and the keys that get you
+  started.
 - *A class*: its results and its tests' times as bars.
 - *A test*: its result, its failure with the stack trace (your own frames bright, library frames folded), and
   **what happened during it**: every HTTP request WireMock received, Kafka message, SQL or MongoDB query, Redis
@@ -108,7 +109,7 @@ file is up, the dashboard says which container (or process) holds the port.
 
 | Where | Keys |
 |---|---|
-| Anywhere | `tab` next panel · `1` `2` `3` tests, services, details · `r` run the selection, or all · `F` run the failed tests · `x` stop (twice kills) · `z` zoom the details · `c` the run's whole command · `H` the runs before · `ctrl+t` test task · `ctrl+p` or `:` commands · `ctrl+s` settings · `?` keys · `q` quit, after asking · a right click offers what can be done with what is under it |
+| Anywhere | `tab` next panel · `1` `2` `3` tests, services, details · `r` run the selection, or all · `F` run the failed tests (before a run, the last run's) · `x` stop (twice kills) · `z` zoom the details · `c` the run's whole command · `H` the runs before · `ctrl+t` test task · `ctrl+p` or `:` commands · `ctrl+s` settings · `?` keys · `q` quit, after asking · a right click offers what can be done with what is under it |
 | Tests | ↑/↓ move · ←/→ collapse, expand · `space` select · `a` select all shown · `u` unselect the tests that passed · `enter` run the selection, or with none, this test or class · `/` filter · `s` all, failed, not passed or flaky · Esc clears the filter, then the selection |
 | A test's details | ↑/↓ the events while it ran · `enter` open the event in its service · `t` by trace or in time order · `c` copy it · `N` hide things like it as noise · `tab` the event, the stack trace · Esc back |
 | Logs | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · `n` show the noise · `N` hide what the filter finds as noise · ←/→ scroll sideways · Home/End |

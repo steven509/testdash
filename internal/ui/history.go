@@ -162,6 +162,9 @@ func (m *Model) resultName(result history.Result) string {
 	case result.Name != "":
 		return result.Name
 	}
+	if cut := strings.LastIndex(result.ID, "/["); cut > 0 && m.entries[result.ID[:cut]] != nil {
+		return m.fullName(m.entries[result.ID[:cut]]) + " › " + idName(result.ID[cut+1:]) // an invocation
+	}
 	return idName(result.ID)
 }
 
@@ -277,6 +280,86 @@ func (m *Model) sinceLastRun(width int) string {
 	return b.String()
 }
 
+// lastRun is the newest kept run of the test task.
+func (m *Model) lastRun() *history.Run {
+	if m.testTask == nil {
+		return nil
+	}
+	for i := range m.runs {
+		if m.runs[i].Task == m.testTask.Path {
+			return &m.runs[i]
+		}
+	}
+	return nil
+}
+
+// failuresOf is what to run to run a run's failures again: each failed test the build still has, or for an
+// invocation of a parameterised test, the parameterised test.
+func (m *Model) failuresOf(run *history.Run) map[string]bool {
+	failed := map[string]bool{}
+	for _, result := range run.Tests {
+		if result.Status != "failed" && result.Status != "aborted" {
+			continue
+		}
+		id := result.ID
+		for !m.selectable[id] && strings.LastIndex(id, "/[") > 0 {
+			id = id[:strings.LastIndex(id, "/[")]
+		}
+		if m.selectable[id] {
+			failed[id] = true
+		}
+	}
+	return failed
+}
+
+// lastRunSummary is the last run on the dashboard before the first run: how it went, and what failed.
+func (m *Model) lastRunSummary(width int) string {
+	run := m.lastRun()
+	if run == nil {
+		return ""
+	}
+	counts := map[string]int{}
+	var failures []history.Result
+	for _, result := range run.Tests {
+		counts[result.Status]++
+		if result.Status == "failed" || result.Status == "aborted" {
+			failures = append(failures, result)
+		}
+	}
+	var b strings.Builder
+	b.WriteString(section("Last run", width, runLabel(run)) + "\n")
+	tally := []string{style.Green.Render(fmt.Sprintf("%s %s passed", ic.passed, number(counts["passed"])))}
+	if len(failures) > 0 {
+		tally = append(tally, style.Red.Render(fmt.Sprintf("%s %s failed", ic.failed, number(len(failures)))))
+	}
+	if counts["skipped"] > 0 {
+		tally = append(tally, style.Yellow.Render(fmt.Sprintf("%s %s skipped", ic.skipped, number(counts["skipped"]))))
+	}
+	if run.Stopped {
+		tally = append(tally, style.Yellow.Render("stopped"))
+	}
+	b.WriteString(strings.Join(tally, "  ") + style.Dim.Render("  in "+duration(run.Took)) + "\n")
+	for i, result := range failures {
+		if i == 5 {
+			b.WriteString(style.Dim.Render(fmt.Sprintf("  and %s more", number(len(failures)-5))) + "\n")
+			break
+		}
+		b.WriteString(style.Red.Render(ic.failed+" ") + fit(m.resultName(result), width-2, true) + "\n")
+		if result.Failure != "" {
+			b.WriteString("    " + style.Dim.Render(fit(cleanText(result.Failure), width-4, true)) + "\n")
+		}
+	}
+	var keys []string
+	if len(m.failuresOf(run)) > 0 {
+		keys = append(keys, keyCap("F")+" "+style.Muted.Render("runs its failures again"))
+	}
+	keys = append(keys, keyCap("H")+" "+style.Muted.Render("every run"))
+	if len(m.flaky) > 0 {
+		keys = append(keys, keyCap("s")+" "+style.Muted.Render(count(len(m.flaky), "flaky test")))
+	}
+	return b.String() + "\n" + strings.Join(keys, "   ") + "\n"
+}
+
 // runList is the build's runs, newest first, with the failures of the one under the cursor, which enter runs again.
 type runList struct {
 	cursor int
@@ -308,12 +391,7 @@ func (l *runList) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
 
 // rerun runs a run's failed tests again, those the build still has.
 func (l *runList) rerun(m *Model) tea.Cmd {
-	failed := map[string]bool{}
-	for _, result := range m.runs[l.cursor].Tests {
-		if (result.Status == "failed" || result.Status == "aborted") && m.selectable[result.ID] {
-			failed[result.ID] = true
-		}
-	}
+	failed := m.failuresOf(&m.runs[l.cursor])
 	if len(failed) == 0 {
 		m.notify("No failures of that run to run again", "", "information")
 		return nil

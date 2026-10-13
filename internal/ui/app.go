@@ -511,6 +511,17 @@ func (m *Model) descendants(id string) []string {
 }
 
 // failedIDs are the task's tests that failed last run; a failed parameterised case counts as its test.
+// rerunnable is what F runs: the tests that failed in this session, or before its first run, in the last run.
+func (m *Model) rerunnable() map[string]bool {
+	if !m.runStarted.IsZero() {
+		return m.failedIDs()
+	}
+	if last := m.lastRun(); last != nil {
+		return m.failuresOf(last)
+	}
+	return nil
+}
+
 func (m *Model) failedIDs() map[string]bool {
 	failed := map[string]bool{}
 	for id, entry := range m.entries {

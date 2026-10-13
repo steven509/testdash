@@ -1481,3 +1481,25 @@ func TestNarrowToATrace(t *testing.T) {
 		t.Error("esc shows every trace")
 	}
 }
+
+func TestTheLastRunBeforeTheFirst(t *testing.T) {
+	m := testModel(t)
+	m.opts.Command = []string{"true"}
+	at := time.Date(2026, 10, 12, 9, 30, 0, 0, time.Local)
+	m.setRuns([]history.Run{{Started: at, Task: ":test", Took: 23000, Commit: "fedcba987", Tests: []history.Result{
+		{ID: "t1", Status: "passed"}, {ID: "t3", Status: "failed", Failure: "AssertionError: boom"},
+		{ID: "t2/[test-template-invocation:#4]", Status: "failed"}, {ID: "t4", Status: "skipped"}}}})
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 50})
+	s := screen(m)
+	for _, want := range []string{"LAST RUN  12 Oct 09:30 (fedcba9)", "1 passed", "2 failed", "1 skipped", "in 23s",
+		"FooTest › when inner › three", "AssertionError: boom", "FooTest › each › [4]", "F  runs its failures again",
+		"H  Runs"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the dashboard before the first run lacks %q:\n%s", want, s)
+		}
+	}
+	press(m, "F")
+	if len(m.lastSelection) != 2 || !m.lastSelection["t3"] || !m.lastSelection["t2"] {
+		t.Errorf("F runs the last run's failures, an invocation's parameterised test for it: %v", m.lastSelection)
+	}
+}

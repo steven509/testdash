@@ -48,7 +48,7 @@ func (m *Model) commands() []command {
 		{"Run the selected tests", count(len(m.selected), "test") + " selected", func() tea.Cmd {
 			return m.startRun(m.selected)
 		}},
-		{"Run the failed tests", "The tests that failed last time", func() tea.Cmd { return m.startRun(m.failedIDs()) }},
+		{"Run the failed tests", "The tests that failed last time", func() tea.Cmd { return m.startRun(m.rerunnable()) }},
 		{"Stop the run", "Interrupt Gradle; again kills it", func() tea.Cmd { m.stop(); return nil }},
 		{"Unselect the passed tests", "Keep the failed and unrun ones selected (u)", func() tea.Cmd {
 			m.unselectPassed()
@@ -279,7 +279,7 @@ var helpSections = []struct {
 	keys  [][2]string
 }{
 	{"Anywhere", [][2]string{{"tab", "next panel"}, {"1 2 3", "tests, services, details"}, {"r", "run the selection, or all"},
-		{"F", "run the failed tests"}, {"x", "stop (twice kills)"}, {"z", "zoom the details"}, {"c", "the run's whole command"}, {"^t", "test task"}, {"H", "runs before this one"},
+		{"F", "run the failed tests, or the last run's"}, {"x", "stop (twice kills)"}, {"z", "zoom the details"}, {"c", "the run's whole command"}, {"^t", "test task"}, {"H", "runs before this one"},
 		{"^p :", "commands"}, {"^s", "settings"}, {"q", "quit (asks first)"}}},
 	{"Tests", [][2]string{{"↑ ↓", "move"}, {"← →", "collapse, expand"}, {"space", "select"}, {"a", "select all shown"}, {"u", "unselect the passed"},
 		{"enter", "run the selection, or this test or class"}, {"/", "filter by name"}, {"s", "all, failed, not passed, flaky"},
