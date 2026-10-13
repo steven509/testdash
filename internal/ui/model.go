@@ -103,6 +103,7 @@ type zone struct {
 	r     rect
 	click func(x, y int) tea.Cmd // relative to the zone
 	wheel func(delta int)
+	menu  func(x, y int) []menuAction // what a right click offers there, besides what the focus can do
 }
 
 func (m *Model) addZone(z zone) {
@@ -208,6 +209,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, m.inputChanged(input)
 		}
 	case tea.MouseClickMsg:
+		if msg.Mouse().Button == tea.MouseRight {
+			return m, m.rightClick(msg.Mouse())
+		}
 		return m, m.click(msg.Mouse())
 	case tea.MouseWheelMsg:
 		mouse := msg.Mouse()

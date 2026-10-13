@@ -1261,6 +1261,70 @@ func TestHideAsNoise(t *testing.T) {
 	}
 }
 
+// rightClickOn right-clicks the first place on screen showing text.
+func rightClickOn(t *testing.T, m *Model, text string) {
+	t.Helper()
+	for y, line := range strings.Split(screen(m), "\n") {
+		if x := strings.Index(line, text); x >= 0 {
+			m.Update(tea.MouseClickMsg{X: ansi.StringWidth(line[:x]), Y: y, Button: tea.MouseRight})
+			return
+		}
+	}
+	t.Fatalf("%q is not on screen:\n%s", text, screen(m))
+}
+
+func TestRightClickMenus(t *testing.T) {
+	m := testModel(t)
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	view := m.serviceEntry(mock).view.(*wiremockView)
+	var events []wiremock.ServeEvent
+	for i, url := range []string{"/health", "/payments"} {
+		raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"GET","url":"` + url + `"},"wasMatched":true}`))
+		events = append(events, wiremock.ServeEvent{ID: fmt.Sprint(i), At: time.Now().Add(time.Duration(i) * time.Millisecond),
+			Method: "GET", URL: url, Status: 200, Matched: true, Raw: raw})
+	}
+	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasEvents: true, events: events}})
+	m.serviceList.selectEntry(m, m.serviceEntry(mock))
+	m.setFocus(m.serviceList)
+	rightClickOn(t, m, "/health")
+	menu, ok := m.popup.(*contextMenu)
+	if !ok || view.requests.cursorKey() != "r:0" {
+		t.Fatalf("a right click picks the row and opens a menu: %T %s", m.popup, view.requests.cursorKey())
+	}
+	var labels []string
+	for _, action := range menu.actions {
+		labels = append(labels, action.key+" "+action.label)
+	}
+	if got := strings.Join(labels, ", "); !strings.Contains(got, "N Hide as noise") || !strings.Contains(got, "c Copy as curl") ||
+		strings.Contains(got, "Quit") {
+		t.Errorf("the menu offers what the row can do, not what testdash does anywhere: %s", got)
+	}
+	press(m, "N")
+	if editor, ok := m.popup.(*noiseEditor); !ok || editor.pattern.Value() != "^GET /health$" {
+		t.Fatalf("a menu item's key chooses it: %T", m.popup)
+	}
+	press(m, "esc")
+
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	m.Update(services.Lines{Service: app, Gen: m.gen, Lines: []*logformat.Line{
+		logformat.NewLine(time.Now(), "2026-10-12 15:45:51,006 INFO [main] c.z.h.HikariPool - pool stats 7"),
+		logformat.NewLine(time.Now(), "2026-10-12 15:45:51,106 INFO [main] c.e.Shop - Order 7 placed"),
+	}})
+	m.serviceList.selectEntry(m, m.serviceEntry(app))
+	m.setFocus(m.serviceList)
+	rightClickOn(t, m, "pool stats")
+	menu, ok = m.popup.(*contextMenu)
+	if !ok || menu.actions[0].label != "Hide lines like this as noise" {
+		t.Fatalf("a log's menu hides lines like the one clicked: %+v", m.popup)
+	}
+	press(m, "enter")
+	if editor, ok := m.popup.(*noiseEditor); !ok || !strings.Contains(editor.pattern.Value(), `pool stats \d+$`) {
+		t.Errorf("the rule starts from that line: %+v", m.popup)
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {

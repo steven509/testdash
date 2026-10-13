@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/noise"
 )
 
 const maxLogRows = 20_000
@@ -37,6 +38,8 @@ type logView struct {
 	window     *window
 	styleShown int
 	rows       []string
+	rowLines   []*logformat.Line // the line each row is of
+	screen     []int             // the row each line on screen shows, as last drawn
 	wrap       bool
 	follow     bool
 	top, sub   int // the first line shown when not following: a row, and a line of it when wrapped
@@ -100,7 +103,11 @@ func (v *logView) addRows(m *Model, lines []*logformat.Line) {
 	simple, showTime := m.logSimple, m.logTime
 	for _, line := range lines {
 		if v.shown(line) {
-			v.rows = append(v.rows, strings.Split(line.Render(simple, showTime), "\n")...)
+			rows := strings.Split(line.Render(simple, showTime), "\n")
+			v.rows = append(v.rows, rows...)
+			for range rows {
+				v.rowLines = append(v.rowLines, line)
+			}
 		}
 	}
 }
@@ -110,6 +117,7 @@ func (v *logView) append(m *Model, lines []*logformat.Line) {
 	if len(v.rows) > maxLogRows+maxLogRows/4 {
 		drop := len(v.rows) - maxLogRows
 		v.rows = append([]string(nil), v.rows[drop:]...)
+		v.rowLines = append([]*logformat.Line(nil), v.rowLines[drop:]...)
 		if v.top -= drop; v.top < 0 {
 			v.top, v.sub = 0, 0
 		}
@@ -117,16 +125,17 @@ func (v *logView) append(m *Model, lines []*logformat.Line) {
 }
 
 func (v *logView) clear() {
-	v.rows = nil
+	v.rows, v.rowLines = nil, nil
 	v.top, v.sub = 0, 0
 }
 
 func (v *logView) rerender(m *Model) {
-	v.rows = nil
+	v.rows, v.rowLines = nil, nil
 	source := v.source()
 	v.addRows(m, source[max(0, len(source)-maxLogRows):])
 	if len(v.rows) > maxLogRows {
 		v.rows = v.rows[len(v.rows)-maxLogRows:]
+		v.rowLines = v.rowLines[len(v.rowLines)-maxLogRows:]
 	}
 	v.styleShown = styleKey(m)
 	v.top = min(v.top, max(0, len(v.rows)-1))
@@ -251,10 +260,14 @@ func (v *logView) visible(width, height int) []string {
 	}
 	first := row
 	var out []string
+	v.screen = v.screen[:0]
 	for ; row < len(v.rows) && len(out) < height; row, sub = row+1, 0 {
 		pieces := v.pieces(row)
 		if sub < len(pieces) {
 			out = append(out, pieces[sub:]...)
+			for range pieces[sub:] {
+				v.screen = append(v.screen, row)
+			}
 		}
 	}
 	shown := block(out, width, height)
@@ -279,6 +292,15 @@ func (v *logView) render(m *Model, r rect) []string {
 	height := max(0, r.h-len(out))
 	out = append(out, v.visible(r.w, height)...)
 	m.addZone(zone{r: rect{r.x, y, r.w, height}, click: func(int, int) tea.Cmd { m.setFocus(v); return nil },
+		menu: func(_, y int) []menuAction {
+			if line := v.lineAt(y); line != nil && v.service != "" {
+				return []menuAction{{label: "Hide lines like this as noise", run: func() tea.Cmd {
+					m.hideAsNoise(v.service, noise.Suggest(lineNoiseText(line)))
+					return nil
+				}}}
+			}
+			return nil
+		},
 		wheel: v.scroll})
 	return out
 }
@@ -406,4 +428,12 @@ func (v *logView) key(k tea.KeyPressMsg) bool {
 		return false
 	}
 	return true
+}
+
+// lineAt is the line shown on a row of the log on screen.
+func (v *logView) lineAt(y int) *logformat.Line {
+	if y < 0 || y >= len(v.screen) || v.screen[y] >= len(v.rowLines) {
+		return nil
+	}
+	return v.rowLines[v.screen[y]]
 }
