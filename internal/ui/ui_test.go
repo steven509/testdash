@@ -1107,6 +1107,72 @@ func TestTheRunsBefore(t *testing.T) {
 	}
 }
 
+func TestEventsByTrace(t *testing.T) {
+	m := testModel(t)
+	m.runStarted = time.Now().Add(-10 * time.Second)
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{"t1": true}
+	at := time.Now().Add(-5 * time.Second)
+	events := fmt.Sprintf(`{"event":"plan","at":1,"entries":[`+
+		`{"id":"t1","parent":"c1","kind":"test","className":"com.a.FooTest","methodName":"one","name":"one"}]}
+{"event":"started","at":%d,"id":"t1"}
+{"event":"finished","at":%d,"id":"t1","status":"SUCCESSFUL"}
+`, at.UnixMilli(), at.Add(time.Second).UnixMilli())
+	if err := os.WriteFile(filepath.Join(m.opts.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tickMsg{})
+	traceID := "4bf92f3577b34da6a3ce929d0e0e4736"
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"POST","url":"/payments","headers":` +
+		`{"traceparent":"00-` + traceID + `-00f067aa0ba902b7-01"}},"wasMatched":true}`))
+	m.Update(wiremockMsg{view: m.serviceEntry(mock).view.(*wiremockView), poll: wiremockPoll{hasEvents: true,
+		events: []wiremock.ServeEvent{{ID: "e1", At: at.Add(200 * time.Millisecond), Method: "POST", URL: "/payments",
+			Status: 201, Matched: true, Raw: raw}}}})
+	broker := services.NewService("kafka", "kafka", "apache/kafka:3.8.0")
+	m.Update(services.Added{Service: broker})
+	value, parent := `{"orderId":1}`, "00-"+traceID+"-a3ce929d0e0e4736-01"
+	m.Update(kafkaMessagesMsg{view: m.serviceEntry(broker).view.(*kafkaView), batch: []kafka.Message{{
+		At: at.Add(3 * time.Second), Topic: "orders.events", Value: &value,
+		Headers: []kafka.Header{{Name: "traceparent", Value: &parent}}}}})
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	m.Update(services.Lines{Service: app, Gen: m.gen, Lines: []*logformat.Line{logformat.NewLine(at.Add(300*time.Millisecond),
+		"2026-10-12 15:45:51.006  INFO 1 --- [shop] [exec-1] ["+traceID+"-00f067aa0ba902b7] c.e.Shop : Order 7 placed")}})
+	cache := services.NewService("redis", "redis", "redis:7")
+	m.Update(services.Added{Service: cache})
+	m.Update(queriesMsg{view: m.serviceEntry(cache).view.(*dbView), batch: []databases.Query{{
+		At: at.Add(400 * time.Millisecond), Connection: "c", Kind: "GET", Args: []string{"GET", "cart:7"}, Text: "GET cart:7"}}})
+
+	m.tree.cursor = "t1"
+	screen(m)
+	press(m, "3")
+	if !strings.Contains(screen(m), "t  By trace") {
+		t.Fatalf("the events offer to group by trace:\n%s", screen(m))
+	}
+	press(m, "t")
+	var rows []string
+	for _, ev := range m.inspector.timeline {
+		rows = append(rows, ev.source+" "+ansi.Strip(ev.summary))
+	}
+	got := strings.Join(rows, "\n")
+	for _, want := range []string{"TRACE trace 4bf92f35  3 events over 2.8s, 1 after the test", "HTTP   POST /payments",
+		"LOG   INFO Order 7 placed", "KAFKA   orders.events", "after the test", "TRACE Not traced  1 event",
+		"REDIS   GET cart:7"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the events by trace lack %q:\n%s", want, got)
+		}
+	}
+	if os.Getenv("SHOW") != "" {
+		fmt.Println(screen(m))
+	}
+	press(m, "enter")
+	if m.detailFrom == panelServices {
+		t.Error("a trace's heading opens no service")
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {

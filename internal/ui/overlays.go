@@ -284,7 +284,7 @@ var helpSections = []struct {
 		{"enter", "run the selection, or this test or class"}, {"/", "filter by name"}, {"s", "all, failed, not passed, flaky"},
 		{"c", "copy a failed test's failure"}, {"esc", "clear"}}},
 	{"A test's details", [][2]string{{"↑ ↓", "events while it ran"}, {"enter", "open the event in its service"},
-		{"c", "copy: curl, query, command, payload"}, {"tab", "the event, the stack trace"}, {"esc", "back to the tests"}}},
+		{"c", "copy: curl, query, command, payload"}, {"t", "by trace, or in time order"}, {"tab", "the event, the stack trace"}, {"esc", "back to the tests"}}},
 	{"Logs", [][2]string{{"/", "filter (regex)"}, {"e", "errors only"}, {"f", "follow"}, {"w", "wrap"},
 		{"v", "simplified or full"}, {"t", "times"}, {"esc", "clear, back"}}},
 	{"Services", [][2]string{{"[ ]", "tabs"}, {"↑ ↓", "rows; details beside"}, {"u", "WireMock: unmatched only"},

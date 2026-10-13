@@ -14,6 +14,7 @@ import (
 	"github.com/steven509/testdash/internal/logformat"
 	"github.com/steven509/testdash/internal/progress"
 	"github.com/steven509/testdash/internal/style"
+	"github.com/steven509/testdash/internal/trace"
 )
 
 const maxTimeline = 500
@@ -27,6 +28,7 @@ type inspector struct {
 	timeline []timelineEvent
 	builtFor string
 	builtAt  int // the model's version the timeline was built at
+	byTrace  bool
 	window   *window
 	layout   inspectorLayout
 }
@@ -48,6 +50,8 @@ type timelineEvent struct {
 	service *svcEntry
 	reveal  func() // selects the event in its service's view
 	copy    copyable
+	trace   trace.Context
+	header  bool // a trace's heading in the events by trace
 }
 
 // copyable is what c copies from an event, such as a query or a message's payload, and its name.
@@ -153,6 +157,9 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 			in.events.cursor, in.events.offset = 0, 0
 		}
 		in.timeline = m.timeline(w)
+		if in.byTrace {
+			in.timeline = m.byTrace(w, in.timeline)
+		}
 		in.builtFor, in.builtAt = entry.ID, m.version
 		in.events.clear()
 		for i, ev := range in.timeline {
@@ -174,7 +181,7 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 		return append(out, section("During this test", r.w, ""), "",
 			style.Dim.Render("Nothing reached the services while it ran."))
 	}
-	out = append(out, section("During this test", r.w, count(len(in.timeline), "event")))
+	out = append(out, section("During this test", r.w, count(eventCount(in.timeline), "event")))
 	rest--
 	tableHeight := max(3, min(len(in.timeline)+1, (rest-1)/2))
 	in.layout.tableHeight = tableHeight
@@ -201,6 +208,12 @@ func (in *inspector) levels(m *Model, focus any) []level {
 	switch focus {
 	case in.events:
 		events := tableLevel(in.events, "Open in its service", func() tea.Cmd { in.open(m); return nil })
+		events.bindings = append(events.bindings, bind("t", map[bool]string{false: "By trace", true: "Time order"}[in.byTrace],
+			func() tea.Cmd {
+				in.byTrace, in.builtAt = !in.byTrace, -1
+				in.events.cursor, in.events.offset = 0, 0
+				return nil
+			}))
 		if i := in.events.cursor; i >= 0 && i < len(in.timeline) && in.timeline[i].copy.text != "" {
 			c := in.timeline[i].copy
 			events.bindings = append(events.bindings,
@@ -222,7 +235,7 @@ func (in *inspector) levels(m *Model, focus any) []level {
 // open shows the selected event in its service's view, narrowed to the test's time.
 func (in *inspector) open(m *Model) {
 	i := in.events.cursor
-	if i < 0 || i >= len(in.timeline) {
+	if i < 0 || i >= len(in.timeline) || in.timeline[i].header {
 		return
 	}
 	m.openEvent(in.timeline[i], in.window)
@@ -251,7 +264,18 @@ func (m *Model) openEvent(ev timelineEvent, w *window) {
 // timeline is everything the services saw in a window, in time order: requests, messages, queries, and the
 // application's warnings and errors.
 func (m *Model) timeline(w *window) []timelineEvent {
+	return m.collect(w, func(line *logformat.Line) bool { return line.IsLoggedProblem() }, nil)
+}
+
+// collect is what the services saw in a window, in time order, with the application's log lines logs keeps, and
+// only the events keep keeps when it is given.
+func (m *Model) collect(w *window, logs func(*logformat.Line) bool, keep func(*timelineEvent) bool) []timelineEvent {
 	var events []timelineEvent
+	add := func(ev timelineEvent) {
+		if keep == nil || keep(&ev) {
+			events = append(events, ev)
+		}
+	}
 	for _, entry := range m.orderedServices() {
 		entry := entry
 		switch v := entry.view.(type) {
@@ -262,10 +286,10 @@ func (m *Model) timeline(w *window) []timelineEvent {
 				if !e.Matched {
 					summary += style.Red.Render("  no stub")
 				}
-				events = append(events, timelineEvent{at: e.At, source: "HTTP", color: style.Teal, summary: summary,
+				add(timelineEvent{at: e.At, source: "HTTP", color: style.Teal, summary: summary,
 					service: entry, reveal: func() { v.requests.selectKey("r:" + e.ID) },
 					detail: func() string { return describeRequest(e, nil) },
-					copy:   copyable{"request as curl", curlCommand(e, v.client.BaseURL())}})
+					copy:   copyable{"request as curl", curlCommand(e, v.client.BaseURL())}, trace: requestTrace(e)})
 			}
 		case *kafkaView:
 			for _, message := range v.messagesBetween(w) {
@@ -277,7 +301,15 @@ func (m *Model) timeline(w *window) []timelineEvent {
 				if message.Value != nil {
 					event.copy = copyable{"payload", *message.Value}
 				}
-				events = append(events, event)
+				event.trace, _ = trace.FromHeaders(func(name string) string {
+					for _, header := range message.Headers {
+						if strings.EqualFold(header.Name, name) && header.Value != nil {
+							return *header.Value
+						}
+					}
+					return ""
+				})
+				add(event)
 			}
 		case *dbView:
 			source := map[string]string{"mongodb": "MONGO", "redis": "REDIS"}[v.kind]
@@ -292,9 +324,11 @@ func (m *Model) timeline(w *window) []timelineEvent {
 				if q.Target != "" {
 					summary = style.Bold.Render(q.Kind+" "+q.Target) + "  " + style.Dim.Render(preview(&text, 80))
 				}
-				events = append(events, timelineEvent{at: q.At, source: source, color: style.Orange, summary: summary,
+				context, _ := trace.FromText(q.Text)
+				add(timelineEvent{at: q.At, source: source, color: style.Orange, summary: summary,
 					service: entry, reveal: func() { v.selectQuery(q) },
-					detail: func() string { return describeQuery(q, entry.svc.Kind) }, copy: copyable{one, q.Text}})
+					detail: func() string { return describeQuery(q, entry.svc.Kind) }, copy: copyable{one, q.Text},
+					trace: context})
 			}
 		default:
 			if !entry.svc.IsApp() {
@@ -302,7 +336,7 @@ func (m *Model) timeline(w *window) []timelineEvent {
 			}
 			lines := entry.lines.all()
 			for i, line := range lines {
-				if line.At.IsZero() || !w.holds(line.At) || !line.IsLoggedProblem() {
+				if line.At.IsZero() || !w.holds(line.At) || !logs(line) {
 					continue
 				}
 				record := line.Record()
@@ -310,12 +344,16 @@ func (m *Model) timeline(w *window) []timelineEvent {
 				if record != nil {
 					level, message = record.Level, cleanText(strings.SplitN(record.Message, "\n", 2)[0])
 				}
-				color := style.Warn
-				if level == "ERROR" || level == "FATAL" {
+				color := style.MutedText
+				switch level {
+				case "ERROR", "FATAL":
 					color = style.Fail
+				case "WARN":
+					color = style.Warn
 				}
 				follow := continuation(lines, i)
-				events = append(events, timelineEvent{at: line.At, source: "LOG", color: color,
+				context, _ := trace.FromText(line.Text)
+				add(timelineEvent{at: line.At, source: "LOG", color: color, trace: context,
 					summary: style.Fg(color).Render(level) + " " + message, service: entry,
 					detail: func() string {
 						var b strings.Builder
