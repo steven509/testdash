@@ -450,6 +450,52 @@ func TestCopyQueriesAndPayloads(t *testing.T) {
 	}
 }
 
+func TestCurlCommand(t *testing.T) {
+	raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"POST","url":"/payments/p1/refunds",` +
+		`"absoluteUrl":"http://wiremock:8080/payments/p1/refunds","headers":{"Content-Type":"text/plain",` +
+		`"Host":"wiremock:8080","X-Tag":["a","b"]},"body":"it's 10"}}`))
+	e := wiremock.ServeEvent{Raw: raw}
+	want := "curl 'http://127.0.0.1:32768/payments/p1/refunds' \\\n  -X POST \\\n  -H 'Content-Type: text/plain' \\\n" +
+		"  -H 'X-Tag: a' \\\n  -H 'X-Tag: b' \\\n  --data-raw 'it'\\''s 10'"
+	if got := curlCommand(e, "http://127.0.0.1:32768"); got != want {
+		t.Errorf("the request goes to WireMock's published port, as it came:\n%s\nwant\n%s", got, want)
+	}
+	if got := curlCommand(e, ""); !strings.HasPrefix(got, "curl 'http://wiremock:8080/payments/p1/refunds'") {
+		t.Errorf("without a published port it goes where it came to:\n%s", got)
+	}
+}
+
+func TestCopyFailure(t *testing.T) {
+	var copied []string
+	real := systemClipboard
+	systemClipboard = func(text string) bool { copied = append(copied, text); return true }
+	t.Cleanup(func() { systemClipboard = real })
+	m := testModel(t)
+	m.runStarted, m.runFinished = time.Now(), time.Now()
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{"t1": true}
+	events := `{"event":"finished","at":2,"id":"t1","status":"FAILED","message":"boom",` +
+		`"trace":"java.lang.AssertionError: boom\n\tat com.a.FooTest.one(FooTest.java:9)"}` + "\n"
+	if err := os.WriteFile(filepath.Join(m.opts.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tickMsg{})
+	press(m, "home", "down", "down")
+	if m.tree.cursor != "t1" || !strings.Contains(screen(m), "c  Copy failure") {
+		t.Fatalf("a failed test offers to copy its failure: %s\n%s", m.tree.cursor, screen(m))
+	}
+	_, cmd := m.Update(key("c"))
+	cmd()
+	if want := "FooTest › one\njava.lang.AssertionError: boom\n\tat com.a.FooTest.one(FooTest.java:9)"; len(copied) != 1 ||
+		copied[0] != want {
+		t.Errorf("c copies the test's name and stack trace: %q", copied)
+	}
+	press(m, "down")
+	if strings.Contains(screen(m), "Copy failure") {
+		t.Error("a test that did not fail has nothing to copy")
+	}
+}
+
 func TestHighlightJSON(t *testing.T) {
 	got := highlightJSON(`{"id": 1, "ok": true, "name": "x"}`)
 	for _, want := range []string{style.Cyan.Render(`"id"`), style.Yellow.Render("1"),

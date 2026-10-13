@@ -479,6 +479,17 @@ func (v *wiremockView) main() any {
 	return v.stubTable
 }
 
+// selectedRequest is the request under the cursor of the requests or near misses.
+func (v *wiremockView) selectedRequest() (wiremock.ServeEvent, bool) {
+	if v.activeID() != "requests" && v.activeID() != "near-misses" {
+		return wiremock.ServeEvent{}, false
+	}
+	t, _ := v.paneOf(v.activeID())
+	_, id, _ := strings.Cut(t.cursorKey(), ":")
+	e, ok := v.byID[id]
+	return e, ok
+}
+
 func (v *wiremockView) paneOf(id string) (*table, *textbox) {
 	switch id {
 	case "requests":
@@ -536,6 +547,10 @@ func (v *wiremockView) levels(m *Model, focus any) []level {
 		}),
 		bind("esc", "All requests", func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
+		bind("c", "Copy as curl", func() tea.Cmd {
+			e, _ := v.selectedRequest()
+			return m.copyText("the request as curl", curlCommand(e, v.client.BaseURL()))
+		}).when(func() bool { _, ok := v.selectedRequest(); return ok }),
 	)}
 	if v.activeID() == "log" {
 		return append(v.log.levels(m, focus), own)
@@ -708,6 +723,49 @@ func describeRequest(e wiremock.ServeEvent, near *wiremock.NearMiss) string {
 		b.WriteString(highlightJSON(cleanBlock(jsonx.Indent(stub))) + "\n")
 	}
 	return styleEachLine(b.String())
+}
+
+// curlCommand is a curl command that sends a request WireMock received again: to WireMock's published port when
+// it has one, so it runs from this machine, else to the address the request came to.
+func curlCommand(e wiremock.ServeEvent, baseURL string) string {
+	request, _ := jsonx.ParseObject(e.Raw.Get("request"))
+	url := request.String("absoluteUrl")
+	if baseURL != "" || url == "" {
+		url = baseURL + request.String("url")
+	}
+	lines := []string{"curl " + shellQuote(url)}
+	if method := request.String("method"); method != "" && method != "GET" {
+		lines = append(lines, "-X "+method)
+	}
+	if headers, ok := jsonx.ParseObject(request.Get("headers")); ok {
+		for _, name := range headers.Keys {
+			if !curlSkipsHeader[strings.ToLower(name)] {
+				for _, value := range headerValues(headers.Get(name)) {
+					lines = append(lines, "-H "+shellQuote(name+": "+value))
+				}
+			}
+		}
+	}
+	if body := request.String("body"); body != "" {
+		lines = append(lines, "--data-raw "+shellQuote(body))
+	}
+	return strings.Join(lines, " \\\n  ")
+}
+
+// curlSkipsHeader are the headers curl sets itself from the command.
+var curlSkipsHeader = map[string]bool{"host": true, "content-length": true, "connection": true,
+	"transfer-encoding": true}
+
+func headerValues(raw json.RawMessage) []string {
+	var values []string
+	if json.Unmarshal(raw, &values) == nil {
+		return values
+	}
+	return []string{jsonx.Text(raw)}
+}
+
+func shellQuote(text string) string {
+	return "'" + strings.ReplaceAll(text, "'", `'\''`) + "'"
 }
 
 func headerValue(raw json.RawMessage) string {

@@ -50,12 +50,12 @@ queries) and a dot for whether it runs.
 - *A test*: its result, its failure with the stack trace (your own frames bright, library frames folded), and
   **what happened during it**: every HTTP request WireMock received, Kafka message, SQL or MongoDB query, and
   warning or error the application logged while it ran, in time order. Select one to see all of it below;
-  `enter` opens it in its service's view, narrowed to the test's time, and `c` copies a query or a message's
-  payload.
+  `enter` opens it in its service's view, narrowed to the test's time, and `c` copies it: a request as a curl
+  command, a query, or a message's payload. On a failed test, `c` copies its failure.
 - *Gradle or a service*: its log, or WireMock's requests (with the closest stub for each unmatched one), stubs
   and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's
   queries and log. A SQL query shows laid out over lines and coloured, or as the database logged it (`v`); JSON
-  is coloured wherever it shows. `c` copies the query or the message's payload.
+  is coloured wherever it shows. `c` copies the request as curl, the query or the message's payload.
 
 <p align="center">
   <img src="docs/images/failure.png" width="880"

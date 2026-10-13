@@ -210,7 +210,7 @@ func (in *inspector) levels(m *Model, focus any) []level {
 	case in.event:
 		return []level{detailLevel(in.event)}
 	}
-	bindings := []binding{}
+	bindings := []binding{m.copyFailure(m.tree.cursor)}
 	if id := m.tree.cursor; id != "" {
 		bindings = append(bindings, bind("enter", "Run "+map[bool]string{true: "class", false: "test"}[m.entries[id] != nil &&
 			m.entries[id].Kind == "class"], func() tea.Cmd { return m.startRun(m.selectionFor(id)) }).
@@ -264,7 +264,8 @@ func (m *Model) timeline(w *window) []timelineEvent {
 				}
 				events = append(events, timelineEvent{at: e.At, source: "HTTP", color: style.Teal, summary: summary,
 					service: entry, reveal: func() { v.requests.selectKey("r:" + e.ID) },
-					detail: func() string { return describeRequest(e, nil) }})
+					detail: func() string { return describeRequest(e, nil) },
+					copy:   copyable{"request as curl", curlCommand(e, v.client.BaseURL())}})
 			}
 		case *kafkaView:
 			for _, message := range v.messagesBetween(w) {
@@ -388,6 +389,27 @@ func (m *Model) testCard(entry *catalog.Entry, width int) string {
 		b.WriteString("\n" + style.Cyan.Render(runningGlyph+" running…"))
 	}
 	return b.String()
+}
+
+// copyFailure copies a failed test's name, message and stack trace, to paste into a ticket or a chat.
+func (m *Model) copyFailure(id string) binding {
+	return bind("c", "Copy failure", func() tea.Cmd { return m.copyText("the failure", m.failureText(id)) }).
+		when(func() bool { return m.failureText(id) != "" })
+}
+
+func (m *Model) failureText(id string) string {
+	entry, state := m.entries[id], m.state(id)
+	if entry == nil || (state.Status != "failed" && state.Status != "aborted") {
+		return ""
+	}
+	details := state.Trace
+	if details == "" {
+		details = state.Message
+	}
+	if details == "" {
+		return ""
+	}
+	return strings.Join(append(m.groupOf(entry), entry.Name), " › ") + "\n" + details
 }
 
 // failure is a test's message and stack trace beside a bar in its colour. The project's own frames stay bright;
