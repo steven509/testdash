@@ -23,3 +23,8 @@ first if it is running: the recordings use the same Compose project.
   repository, so the runs' history shows a clean working tree.
 - `compose/` frames the screenshots in a window (`window.html`), and builds the trailer from the scenes on a
   captioned backdrop (`scene.html`) between a title and an end card (`card.html`), with headless Chrome and ffmpeg.
+
+GitHub plays a video in a README only when it was uploaded to GitHub, not from a file in the repository. After
+recording the trailer, drag `docs/trailer.mp4` into any comment box on github.com (it need not be posted), and
+put the `https://github.com/user-attachments/assets/...` link it gives in the README, on a line of its own, in
+place of the old one.

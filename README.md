@@ -13,9 +13,7 @@ testdash is a single Go binary built with [Bubble Tea](https://github.com/charmb
 [Lip Gloss](https://github.com/charmbracelet/lipgloss). It paints its own dark theme, so it looks the same in
 any terminal, and shows a run's progress in the terminal's tab or taskbar where the terminal supports it.
 
-<p align="center">
-  <a href="docs/trailer.mp4"><img src="docs/images/trailer.png" width="640" alt="Watch the trailer"></a>
-</p>
+https://github.com/user-attachments/assets/ab115325-9d05-4a41-80ee-204ec212ee1c
 
 ## The screen
 

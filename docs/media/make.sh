@@ -71,12 +71,8 @@ for target in "${targets[@]}"; do
       ;;
     trailer)
       "$media/compose/compose.sh" "$work/tapes" "$repo/docs/trailer.mp4"
-      seconds=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$repo/docs/trailer.mp4")
-      length=$(python3 -c "s = round($seconds); print(f'{s // 60}:{s % 60:02d}')")
-      "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless --disable-gpu --hide-scrollbars \
-        --force-device-scale-factor=1 --window-size=1920,1080 --screenshot="$work/poster.png" \
-        "file://$media/compose/card.html?poster=1&length=$length" >/dev/null 2>&1
-      ffmpeg -v error -y -i "$work/poster.png" -vf "scale=1280:-1:flags=lanczos" "$repo/docs/images/trailer.png"
+      echo "GitHub plays only an uploaded video: drag docs/trailer.mp4 into a comment box on github.com, and put"
+      echo "the https://github.com/user-attachments/assets/... link it gives in README.md in place of the old one."
       ;;
   esac
 done

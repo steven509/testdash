@@ -29,18 +29,11 @@
   .then code { font: 30px "Hack Nerd Font", monospace; color: #E4E4F0; padding: 2px 12px; border-radius: 8px; background: rgba(255,255,255,.07); }
   .foot { margin-top: 64px; font-size: 22px; color: #6B6B88; }
   .hidden { display: none; }
-  .play {
-    margin: 52px auto 0; width: 132px; height: 132px; border-radius: 50%; display: grid; place-items: center;
-    background: linear-gradient(135deg, #8B7CFF, #F472B6); box-shadow: 0 16px 50px rgba(139,124,255,.5);
-  }
-  .play::after { content: ""; margin-left: 12px; border-style: solid; border-width: 30px 0 30px 50px; border-color: transparent transparent transparent #fff; }
-  .watch { margin-top: 22px; font-size: 28px; color: #C9C9E3; }
 </style></head><body>
 <div>
   <div class="logo"><span class="icon">&#xea79;</span>testdash</div>
   <div id="intro">
     <div class="tag">Run your Gradle tests. <em>See everything they touch.</em></div>
-    <div id="poster" class="hidden"><div class="play"></div><div class="watch" id="watch">Watch the trailer</div></div>
     <div class="chips" id="chips"><span class="chip">JUnit 5</span><span class="chip">Cucumber</span><span class="chip">WireMock</span><span class="chip">Kafka</span><span class="chip">MariaDB</span><span class="chip">Postgres</span><span class="chip">MongoDB</span><span class="chip">Redis</span><span class="chip">your app's logs</span></div>
   </div>
   <div id="outro" class="hidden">
@@ -50,12 +43,6 @@
   </div>
 </div>
 <script>
-  const length = new URLSearchParams(location.search).get('length');
-  if (length) document.getElementById('watch').textContent += ' · ' + length;
-  if (new URLSearchParams(location.search).get('poster')) {
-    document.getElementById('poster').classList.remove('hidden');
-    document.getElementById('chips').classList.add('hidden');
-  }
   if (new URLSearchParams(location.search).get('end')) {
     document.getElementById('intro').classList.add('hidden');
     document.getElementById('outro').classList.remove('hidden');
