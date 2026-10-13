@@ -32,7 +32,7 @@ encode=(-c:v libx264 -preset slow -crf 16 -pix_fmt yuv420p -r $fps)
 
 chrome "$out/title.png" "file://$here/card.html"
 chrome "$out/end.png" "file://$here/card.html?end=1"
-ffmpeg -v error -y -loop 1 -t 2.4 -i "$out/title.png" -vf "fade=in:st=0:d=0.5" "${encode[@]}" "$out/part0.mp4"
+ffmpeg -v error -y -loop 1 -t 2.4 -i "$out/title.png" "${encode[@]}" "$out/part0.mp4"
 
 for ((i = 0; i < scenes; i++)); do
   n=$((i + 1))
