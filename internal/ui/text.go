@@ -259,6 +259,8 @@ func clockMillis(at time.Time) string {
 func duration(millis int64) string {
 	seconds := float64(millis) / 1000
 	switch {
+	case millis < 100:
+		return fmt.Sprintf("%dms", millis)
 	case seconds < 10:
 		return fmt.Sprintf("%.1fs", seconds)
 	case seconds < 60:

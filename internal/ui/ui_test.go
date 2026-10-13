@@ -1029,7 +1029,7 @@ func TestATestsHistory(t *testing.T) {
 	at := time.Date(2026, 10, 12, 10, 42, 0, 0, time.Local)
 	run := func(minutes int, commit, status string, took int64) history.Run {
 		return history.Run{Started: at.Add(time.Duration(minutes) * time.Minute), Commit: commit,
-			Tests: []history.Result{{ID: "t3", Status: status, Took: took}}}
+			Tests: []history.Result{{ID: "t3", Status: status, Took: took, Failure: "AssertionError: boom"}}}
 	}
 	m.setRuns([]history.Run{run(4, "abc1234ff", "failed", 0), run(3, "abc1234ff", "failed", 0),
 		run(2, "0def999", "passed", 600), run(1, "0def999", "passed", 640), run(0, "0def999", "passed", 580)})
@@ -1038,8 +1038,8 @@ func TestATestsHistory(t *testing.T) {
 		press(m, "down")
 	}
 	s := screen(m)
-	for _, want := range []string{"History ■■■■■", "5 runs, newest last", "Failing for 2 runs, since 12 Oct 10:45 (abc1234)",
-		"Usually 0.6s"} {
+	for _, want := range []string{"HISTORY  5 runs, newest last · H every run", "■■■■■  usually 0.6s",
+		"Failing for 2 runs, since 12 Oct 10:45 (abc1234)", "Last failed 12 Oct 10:46 (abc1234)", "AssertionError: boom"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the test's details lack %q:\n%s", want, s)
 		}
@@ -1388,7 +1388,7 @@ func TestNumbers(t *testing.T) {
 }
 
 func TestDuration(t *testing.T) {
-	for millis, want := range map[int64]string{400: "0.4s", 9_950: "9.9s", 12_400: "12s", 75_000: "1:15"} {
+	for millis, want := range map[int64]string{12: "12ms", 400: "0.4s", 9_950: "9.9s", 12_400: "12s", 75_000: "1:15"} {
 		if got := duration(millis); got != want {
 			t.Errorf("duration(%d) = %q, want %q", millis, got, want)
 		}

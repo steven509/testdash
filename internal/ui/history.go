@@ -118,8 +118,9 @@ func (m *Model) recordRun(code int) tea.Cmd {
 	}
 }
 
-// testHistory is what a test's past runs say: its last results, oldest first, and what changed.
-func (m *Model) testHistory(id string) string {
+// testHistory is what a test's past runs say: its last results, oldest first, what changed, and its last failure
+// unless it is failing now.
+func (m *Model) testHistory(id string, width int) string {
 	points := m.historyIndex[id]
 	if len(points) == 0 {
 		return ""
@@ -129,8 +130,8 @@ func (m *Model) testHistory(id string) string {
 	for i := len(recent) - 1; i >= 0; i-- {
 		strip.WriteString(resultStyle(recent[i].Result.Status).Render("■"))
 	}
-	lines := []string{style.Dim.Render("History ") + strip.String() + style.Dim.Render("  "+
-		count(len(recent), "run")+", newest last")}
+	lines := []string{section("History", width, count(len(recent), "run")+", newest last · H every run"),
+		strip.String()}
 	s := history.Summarise(points)
 	switch {
 	case s.FailingFor > 1:
@@ -149,7 +150,19 @@ func (m *Model) testHistory(id string) string {
 		lines = append(lines, style.Yellow.Render(fmt.Sprintf("Slower: %s, usually %s",
 			duration(points[0].Result.Took), duration(s.Usually))))
 	case s.Usually > 0:
-		lines = append(lines, style.Dim.Render("Usually "+duration(s.Usually)))
+		lines[1] += style.Dim.Render("  usually " + duration(s.Usually))
+	}
+	if status := m.status(id); status == "failed" || status == "aborted" {
+		return strings.Join(lines, "\n")
+	}
+	for _, point := range points {
+		if point.Result.Status == "failed" || point.Result.Status == "aborted" {
+			lines = append(lines, style.Muted.Render("Last failed "+runLabel(point.Run)))
+			if point.Result.Failure != "" {
+				lines = append(lines, "  "+style.Dim.Render(fit(cleanText(point.Result.Failure), width-2, true)))
+			}
+			break
+		}
 	}
 	return strings.Join(lines, "\n")
 }

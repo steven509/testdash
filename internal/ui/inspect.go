@@ -422,7 +422,7 @@ func (m *Model) testCard(entry *catalog.Entry, width int) string {
 		b.WriteString("  " + style.Pill("selected", style.Primary, style.Raised))
 	}
 	b.WriteString("\n")
-	if past := m.testHistory(entry.ID); past != "" {
+	if past := m.testHistory(entry.ID, width); past != "" {
 		b.WriteString("\n" + past + "\n")
 	}
 	switch status {
