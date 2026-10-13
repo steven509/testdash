@@ -279,3 +279,118 @@ func highlighted(text string, re *regexp.Regexp, width int) string {
 	return fit(style.Muted.Render(line[:span[0]])+style.AccentBold.Render(line[span[0]:span[1]])+
 		style.Muted.Render(line[span[1]:]), width, true)
 }
+
+// newNoiseRule opens the editor on a rule from nothing, for every service or any one of them.
+func (m *Model) newNoiseRule() {
+	m.hideAsNoise("", "")
+	e := m.popup.(*noiseEditor)
+	e.services = append(e.services, "gradle")
+	for _, entry := range m.orderedServices() {
+		e.services = append(e.services, entry.svc.Key)
+	}
+}
+
+// noiseRules lists the rules in force, with what each hides now, to change, remove or add to.
+type noiseRules struct {
+	cursor int
+	counts map[noiseRef]int
+}
+
+func (m *Model) openNoiseRules() {
+	l := &noiseRules{counts: map[noiseRef]int{}}
+	items := m.noiseItems()
+	for _, ref := range m.noiseRefs() {
+		rule := m.noiseRule(ref)
+		if re, err := regexp.Compile(rule.Match); err == nil {
+			for _, item := range items {
+				if (rule.Service == "" || rule.Service == item.service) && re.MatchString(item.text) {
+					l.counts[ref]++
+				}
+			}
+		}
+	}
+	m.popup = l
+}
+
+// noiseRefs are the build's rules, then every build's.
+func (m *Model) noiseRefs() []noiseRef {
+	var refs []noiseRef
+	for i := range m.opts.Noise {
+		refs = append(refs, noiseRef{index: i})
+	}
+	for i := range m.prefs.Noise {
+		refs = append(refs, noiseRef{everyBuild: true, index: i})
+	}
+	return refs
+}
+
+func (m *Model) noiseRule(ref noiseRef) noise.Rule {
+	if ref.everyBuild {
+		return m.prefs.Noise[ref.index]
+	}
+	return m.opts.Noise[ref.index]
+}
+
+func (l *noiseRules) key(m *Model, k tea.KeyPressMsg) tea.Cmd {
+	refs := m.noiseRefs()
+	switch k.String() {
+	case "esc", "q":
+		m.popup = nil
+	case "ctrl+c":
+		m.popup = &confirmQuit{}
+	case "up", "k":
+		l.cursor = max(0, l.cursor-1)
+	case "down", "j":
+		l.cursor = min(len(refs)-1, l.cursor+1)
+	case "a":
+		m.newNoiseRule()
+	case "enter":
+		if l.cursor < len(refs) {
+			m.editNoise(refs[l.cursor])
+		}
+	case "d", "delete", "backspace":
+		if l.cursor < len(refs) {
+			ref := refs[l.cursor]
+			build, everyBuild := append([]noise.Rule(nil), m.opts.Noise...), append([]noise.Rule(nil), m.prefs.Noise...)
+			if ref.everyBuild {
+				everyBuild = append(everyBuild[:ref.index], everyBuild[ref.index+1:]...)
+			} else {
+				build = append(build[:ref.index], build[ref.index+1:]...)
+			}
+			if err := m.saveNoise(build, everyBuild); err != nil {
+				m.notify(err.Error(), "Could not remove the noise rule", "error")
+			}
+			l.cursor = max(0, min(l.cursor, len(m.noiseRefs())-1))
+		}
+	}
+	return nil
+}
+
+func (l *noiseRules) render(m *Model, screen []string) {
+	width := min(110, m.width-4)
+	inner := width - 4
+	var content []string
+	refs := m.noiseRefs()
+	if len(refs) == 0 {
+		content = append(content, style.Muted.Render("No rules of your own yet. N on anything a service lists, or a right "+
+			"click on it, starts one."))
+	}
+	for i, ref := range refs {
+		rule := m.noiseRule(ref)
+		where, service := "this build", rule.Service
+		if ref.everyBuild {
+			where = "every build"
+		}
+		if service == "" {
+			service = "every service"
+		}
+		left := style.Dim.Render(fit(where, 12, true)) + fit(service, 14, true) + " " + style.Cyan.Render(rule.Match)
+		content = append(content, menuRow(fit(left, inner-12, true), number(l.counts[ref])+" now", inner, i == l.cursor))
+	}
+	content = append(content, "", section("Built in", inner, ""),
+		style.Dim.Render(fit("databases", 14, true))+style.Muted.Render("what pools send to keep a session: SET, SHOW, "+
+			"pings, version and transaction checks"),
+		style.Dim.Render(fit("redis", 14, true))+style.Muted.Render("PING, AUTH, CLIENT, HELLO, SELECT, INFO and the like"),
+		"", style.Dim.Render("enter changes · d removes · a adds · n in a view shows the noise · esc closes"))
+	m.dialog(screen, content, width, "Noise filters", -1)
+}

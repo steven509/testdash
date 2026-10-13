@@ -1325,6 +1325,46 @@ func TestRightClickMenus(t *testing.T) {
 	}
 }
 
+func TestNoiseFiltersDialog(t *testing.T) {
+	m := testModel(t)
+	m.opts.ConfigPath = filepath.Join(t.TempDir(), ".testdash.json")
+	m.opts.Noise = []noise.Rule{{Service: "wiremock", Match: "^GET /health"}}
+	m.prefs.Noise = []noise.Rule{{Match: "(?i)hikari"}}
+	m.setNoise()
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"GET","url":"/health"},"wasMatched":true}`))
+	m.Update(wiremockMsg{view: m.serviceEntry(mock).view.(*wiremockView), poll: wiremockPoll{hasEvents: true,
+		events: []wiremock.ServeEvent{{ID: "e1", At: time.Now(), Method: "GET", URL: "/health", Matched: true, Raw: raw}}}})
+	m.openNoiseRules()
+	s := screen(m)
+	for _, want := range []string{"this build", "wiremock", "^GET /health", "1 now", "every build", "every service",
+		"(?i)hikari", "BUILT IN"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the dialog lacks %q:\n%s", want, s)
+		}
+	}
+	press(m, "enter")
+	editor, ok := m.popup.(*noiseEditor)
+	if !ok || editor.pattern.Value() != "^GET /health" || editor.editing == nil {
+		t.Fatalf("enter changes the rule: %T", m.popup)
+	}
+	editor.pattern.SetValue("^GET /(health|ready)")
+	press(m, "enter")
+	if len(m.opts.Noise) != 1 || m.opts.Noise[0].Match != "^GET /(health|ready)" {
+		t.Errorf("the change replaces the rule: %+v", m.opts.Noise)
+	}
+	m.openNoiseRules()
+	press(m, "down", "d")
+	if len(m.prefs.Noise) != 0 || len(m.opts.Noise) != 1 {
+		t.Errorf("d removes the rule: %+v %+v", m.opts.Noise, m.prefs.Noise)
+	}
+	press(m, "a")
+	if editor, ok := m.popup.(*noiseEditor); !ok || strings.Join(editor.services, ",") != ",gradle,wiremock" {
+		t.Errorf("a adds a rule, for every service or any one: %+v", m.popup)
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {

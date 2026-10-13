@@ -76,6 +76,7 @@ func (m *Model) commands() []command {
 		command{"Simplified or full log lines", "Every log (v)", func() tea.Cmd { m.logSimple = !m.logSimple; return nil }},
 		command{"Times in logs", "Every log (t)", func() tea.Cmd { m.logTime = !m.logTime; return nil }},
 		command{"Runs", "The runs before, their failures, to run again (H)", func() tea.Cmd { m.openRuns(); return nil }},
+		command{"Noise filters", "What the views leave out, to change or add to", func() tea.Cmd { m.openNoiseRules(); return nil }},
 		command{"Settings", "Icons, colours, mouse, log defaults", func() tea.Cmd { m.openSettings(); return nil }},
 		command{"Help", "Every key (?)", func() tea.Cmd { m.popup = &help{}; return nil }},
 		command{"Quit", "Stop the run and leave", m.quit},
