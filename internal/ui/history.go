@@ -101,8 +101,8 @@ func (m *Model) recordRun(code int) tea.Cmd {
 			failure = state.Trace
 		}
 		failure, _, _ = strings.Cut(strings.TrimSpace(failure), "\n")
-		run.Tests = append(run.Tests, history.Result{ID: entry.ID, Status: state.Status, Took: took,
-			Retried: state.Retried, Failure: failure})
+		run.Tests = append(run.Tests, history.Result{ID: entry.ID, Name: m.fullName(entry), Status: state.Status,
+			Took: took, Retried: state.Retried, Failure: failure})
 	}
 	if len(run.Tests) == 0 {
 		return nil
@@ -154,6 +154,40 @@ func (m *Model) testHistory(id string) string {
 	return strings.Join(lines, "\n")
 }
 
+// resultName names a run's test: as the build has it now, else as the run had it, else by its id.
+func (m *Model) resultName(result history.Result) string {
+	switch {
+	case m.entries[result.ID] != nil:
+		return m.fullName(m.entries[result.ID])
+	case result.Name != "":
+		return result.Name
+	}
+	return idName(result.ID)
+}
+
+// idName names a test by its JUnit unique id, for a run that kept no name:
+// [engine:junit-jupiter]/[class:com.shop.QuoteTest]/[test-template:quotes(String)]/[test-template-invocation:#3]
+// is QuoteTest › quotes(String) › [3].
+func idName(id string) string {
+	var names []string
+	for _, segment := range strings.Split(id, "/[") {
+		kind, value, ok := strings.Cut(strings.Trim(segment, "[]"), ":")
+		switch {
+		case !ok || kind == "engine":
+		case kind == "class":
+			names = append(names, value[strings.LastIndex(value, ".")+1:])
+		case kind == "test-template-invocation" || kind == "dynamic-test":
+			names = append(names, "["+strings.TrimPrefix(value, "#")+"]")
+		default:
+			names = append(names, value)
+		}
+	}
+	if len(names) == 0 {
+		return id
+	}
+	return strings.Join(names, " › ")
+}
+
 // runLabel names a run by when it ran and the commit it ran.
 func runLabel(run *history.Run) string {
 	label := run.Started.Local().Format("2 Jan 15:04")
@@ -201,11 +235,11 @@ func (m *Model) sinceLastRun(width int) string {
 	}
 	var failing, fixed, slower []string
 	for _, result := range latest.Tests {
-		entry, earlier := m.entries[result.ID], previous[result.ID]
-		if entry == nil || earlier.Status == "" {
+		earlier := previous[result.ID]
+		if earlier.Status == "" {
 			continue
 		}
-		name := strings.Join(append(m.groupOf(entry), cleanText(entry.Name)), " › ")
+		name := m.resultName(result)
 		switch {
 		case (result.Status == "failed" || result.Status == "aborted") && earlier.Status == "passed":
 			failing = append(failing, name)
@@ -317,11 +351,7 @@ func (l *runList) render(m *Model, screen []string) {
 		if result.Status != "failed" && result.Status != "aborted" {
 			continue
 		}
-		name := result.ID
-		if entry := m.entries[result.ID]; entry != nil {
-			name = strings.Join(append(m.groupOf(entry), cleanText(entry.Name)), " › ")
-		}
-		failures = append(failures, style.Red.Render(ic.failed+" ")+fit(name, inner-2, true),
+		failures = append(failures, style.Red.Render(ic.failed+" ")+fit(m.resultName(result), inner-2, true),
 			"  "+style.Dim.Render(fit(cleanText(result.Failure), inner-2, true)))
 	}
 	switch {

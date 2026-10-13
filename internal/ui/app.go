@@ -1031,6 +1031,11 @@ func (m *Model) groupOf(entry *catalog.Entry) []string {
 	return names
 }
 
+// fullName is a test's name after its classes' and its parameterised test's: QuoteTest › quotes › [1] JP.
+func (m *Model) fullName(entry *catalog.Entry) string {
+	return strings.Join(append(m.groupOf(entry), cleanText(entry.Name)), " › ")
+}
+
 // testName is a test's name, with its parameterised test's in front of an invocation's: positive › [1] 1.
 func (m *Model) testName(entry *catalog.Entry) string {
 	name := cleanText(entry.Name)

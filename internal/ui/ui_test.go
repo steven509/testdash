@@ -1093,11 +1093,15 @@ func TestTheRunsBefore(t *testing.T) {
 	at := time.Date(2026, 10, 12, 9, 30, 0, 0, time.Local)
 	m.setRuns([]history.Run{
 		{Started: at.Add(time.Hour), Task: ":test", Took: 23000, Tests: []history.Result{{ID: "t1", Status: "passed"},
-			{ID: "t3", Status: "failed", Failure: "AssertionError: boom"}, {ID: "gone", Status: "failed"}}},
+			{ID: "t3", Status: "failed", Failure: "AssertionError: boom"}, {ID: "gone", Status: "failed"},
+			{ID: "[engine:junit-jupiter]/[class:com.shop.QuoteTest]/[test-template:quotes(String)]/" +
+				"[test-template-invocation:#3]", Status: "failed"},
+			{ID: "renamed", Name: "BarTest › signs up", Status: "failed"}}},
 		{Started: at, Task: ":test", Took: 21000, Tests: []history.Result{{ID: "t1", Status: "passed"}}}})
 	press(m, "H")
 	s := screen(m)
-	for _, want := range []string{"12 Oct 10:30", "12 Oct 09:30", "23s", "FooTest › when inner › three", "AssertionError: boom"} {
+	for _, want := range []string{"12 Oct 10:30", "12 Oct 09:30", "23s", "FooTest › when inner › three", "AssertionError: boom",
+		"QuoteTest › quotes(String) › [3]", "BarTest › signs up"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the runs lack %q:\n%s", want, s)
 		}

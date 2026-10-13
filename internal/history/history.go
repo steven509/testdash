@@ -36,7 +36,8 @@ type Run struct {
 // Result is a test's result in a run.
 type Result struct {
 	ID      string `json:"id"`
-	Status  string `json:"status"` // passed, failed, aborted or skipped
+	Name    string `json:"name,omitempty"` // as the run had it: its classes, then its name
+	Status  string `json:"status"`         // passed, failed, aborted or skipped
 	Took    int64  `json:"took,omitempty"`
 	Retried bool   `json:"retried,omitempty"` // failed, then passed when run again in the same run
 	Failure string `json:"failure,omitempty"` // the failure's first line
