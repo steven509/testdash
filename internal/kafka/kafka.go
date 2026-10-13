@@ -245,7 +245,7 @@ func formatterJar(ctx context.Context, container string) (string, error) {
 	sum := sha1.Sum(formatterSource)
 	jar := filepath.Join(catalog.CacheDir(), "kafka-formatter-"+hex.EncodeToString(sum[:])[:12]+".jar")
 	if _, err := os.Stat(jar); err == nil {
-		return jar, nil
+		return jar, os.Chmod(jar, 0o644) // as earlier versions left it readable by its owner alone
 	}
 	if err := os.MkdirAll(filepath.Dir(jar), 0o755); err != nil {
 		return "", err

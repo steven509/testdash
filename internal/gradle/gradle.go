@@ -221,10 +221,16 @@ func WriteJar(jar, dir string, extra map[string]string) error {
 	return writeAtomically(jar, buf.Bytes())
 }
 
-// writeAtomically writes through a temporary file, so two builds at once never leave half a file.
+// writeAtomically writes through a temporary file, so two builds at once never leave half a file. The file is
+// readable by everyone, as a temporary file is not: a jar copied into a container is read by its user.
 func writeAtomically(path string, data []byte) error {
 	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp")
 	if err != nil {
+		return err
+	}
+	if err := tmp.Chmod(0o644); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
 		return err
 	}
 	if _, err := tmp.Write(data); err != nil {
