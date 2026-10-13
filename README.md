@@ -225,8 +225,9 @@ go test ./...    # the parsers are checked against what the Python version made 
 go vet ./...
 ```
 
-The screenshots and the trailer are recorded from a demo shop (`demo/shop`, with WireMock, Kafka, MariaDB and
-MongoDB) by `docs/media/make.sh`; `docs/media/README.md` says what it needs.
+`demo/shop` is a small shop that uses WireMock, Kafka, MariaDB, Postgres, MongoDB and Redis, with tests that fail
+on purpose: run `testdash` in it to try everything. The screenshots and the trailer are recorded from it by
+`docs/media/make.sh`; `docs/media/README.md` says what that needs.
 
 `TESTDASH_DEMO=<dir> go test ./internal/ui -run TestDemoScreens` writes the main screens, with made-up services,
 to `<dir>` as text with their colours, to look at a change to the UI without Docker.
