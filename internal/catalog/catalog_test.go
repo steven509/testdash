@@ -66,6 +66,9 @@ func TestDisplayNames(t *testing.T) {
 	if short := entries()[3].ShortClass(); short != "FooTest.Inner" {
 		t.Errorf("short class %q", short)
 	}
+	if name := display("quotes each country (String, String)", "template"); name != "quotes each country" {
+		t.Errorf("a template's name with underscores replaced is %q", name)
+	}
 }
 
 func TestDiscoveryIsCachedInTaskOrder(t *testing.T) {

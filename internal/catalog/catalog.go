@@ -311,13 +311,14 @@ func BuildRoot(start string) string {
 	}
 }
 
-// display reads `stores values()` as `stores values`, and a template `each(String)` as `each`.
+// display reads `stores values()` as `stores values`, and a template `each(String)` as `each`, or with
+// underscores replaced, `quotes each (String)` as `quotes each`.
 func display(name, kind string) string {
 	if strings.HasSuffix(name, "()") {
-		return name[:len(name)-2]
+		return strings.TrimSpace(name[:len(name)-2])
 	}
 	if kind == "template" && strings.HasSuffix(name, ")") && strings.Contains(name, "(") {
-		return name[:strings.LastIndex(name, "(")]
+		return strings.TrimSpace(name[:strings.LastIndex(name, "(")])
 	}
 	return name
 }
