@@ -1201,9 +1201,13 @@ func TestNoiseRulesLeaveItemsOut(t *testing.T) {
 	m.serviceList.selectEntry(m, m.serviceEntry(mock))
 	m.setFocus(m.serviceList)
 	m.setFocus(view.requests)
-	press(m, "n")
 	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
-	if len(view.requests.rows) != 3 || !strings.Contains(screen(m), "with noise") {
+	if s := screen(m); !strings.Contains(s, "n  Show noise") || !strings.Contains(s, "N  Hide as noise") {
+		t.Errorf("the footer offers the noise keys while there is noise:\n%s", s)
+	}
+	press(m, "n")
+	if len(view.requests.rows) != 3 || !strings.Contains(screen(m), "with noise") ||
+		!strings.Contains(screen(m), "n  Hide noise") {
 		t.Errorf("n shows the noise: %d rows", len(view.requests.rows))
 	}
 	app := services.NewService("shop", "app", "shop:latest")
@@ -1216,6 +1220,11 @@ func TestNoiseRulesLeaveItemsOut(t *testing.T) {
 	log.rerender(m)
 	if rows := strings.Join(log.rows, "\n"); strings.Contains(rows, "Housekeeping") || !strings.Contains(rows, "Order 7") {
 		t.Errorf("a rule for every service applies to logs too:\n%s", rows)
+	}
+	m.serviceList.selectEntry(m, m.serviceEntry(app))
+	m.setFocus(log)
+	if !strings.Contains(screen(m), "n  Show noise") {
+		t.Errorf("a log with noise left out offers to show it:\n%s", screen(m))
 	}
 	m.opts.Noise = nil
 	m.setNoise()

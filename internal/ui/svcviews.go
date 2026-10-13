@@ -576,12 +576,10 @@ func (v *wiremockView) levels(m *Model, focus any) []level {
 			v.fillRequests()
 			return nil
 		}),
-		bind("n", "Noise", func() tea.Cmd {
-			v.showNoise = !v.showNoise
+		noiseToggle(&v.showNoise, v.noisy, func() {
 			v.fillRequests()
 			v.fillNearMisses()
-			return nil
-		}).hidden(),
+		}),
 		bind("esc", "All requests", func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
 		m.allTracesOnEsc(),
@@ -598,7 +596,7 @@ func (v *wiremockView) levels(m *Model, focus any) []level {
 			e, _ := v.selectedRequest()
 			m.hideAsNoise(v.entry.svc.Key, noise.Suggest(requestNoiseText(e)))
 			return nil
-		}).hidden().when(func() bool { _, ok := v.selectedRequest(); return ok }),
+		}).when(func() bool { _, ok := v.selectedRequest(); return ok }),
 	)}
 	if v.activeID() == "log" {
 		return append(v.log.levels(m, focus), own)
@@ -1224,11 +1222,8 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 			c := messageTrace(message)
 			return c, ok && v.activeID() == "messages" && c.TraceID != ""
 		}),
-		bind("n", "Noise", func() tea.Cmd {
-			v.showNoise = !v.showNoise
-			v.refillMessages()
-			return nil
-		}).hidden().when(func() bool { return v.activeID() == "messages" }),
+		noiseToggle(&v.showNoise, v.noisy, v.refillMessages).
+			when(func() bool { return v.activeID() == "messages" && (v.showNoise || v.noisy() > 0) }),
 		bind("h", map[bool]string{false: "Headers", true: "Value"}[v.showHeaders], func() tea.Cmd {
 			v.showHeaders = !v.showHeaders
 			return nil
@@ -1236,7 +1231,7 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 		bind("N", "Hide as noise", func() tea.Cmd {
 			m.hideAsNoise(v.entry.svc.Key, noise.Suggest(messageNoiseText(v.byKey[v.table.cursorKey()])))
 			return nil
-		}).hidden().when(func() bool {
+		}).when(func() bool {
 			_, ok := v.byKey[v.table.cursorKey()]
 			return v.activeID() == "messages" && ok
 		}),
@@ -1601,11 +1596,7 @@ func (v *dbView) levels(m *Model, focus any) []level {
 	onTab := func() { m.setFocus(v.main()) }
 	one, many := v.noun()
 	own := level{bindings: append(tabBindings(&v.tabbedView, onTab),
-		bind("n", "Noise", func() tea.Cmd {
-			v.showNoise = !v.showNoise
-			v.fillQueries()
-			return nil
-		}),
+		noiseToggle(&v.showNoise, v.noisy, v.fillQueries),
 		bind("esc", "All "+many, func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
 		m.allTracesOnEsc(),
@@ -1621,7 +1612,7 @@ func (v *dbView) levels(m *Model, focus any) []level {
 		bind("N", "Hide as noise", func() tea.Cmd {
 			m.hideAsNoise(v.entry.svc.Key, noise.Suggest(queryNoiseText(v.byKey[v.table.cursorKey()])))
 			return nil
-		}).hidden().when(func() bool {
+		}).when(func() bool {
 			_, ok := v.byKey[v.table.cursorKey()]
 			return v.activeID() == "queries" && ok
 		}),

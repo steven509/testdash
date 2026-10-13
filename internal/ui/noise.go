@@ -1,6 +1,8 @@
 package ui
 
 import (
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/steven509/testdash/internal/databases"
 	"github.com/steven509/testdash/internal/kafka"
 	"github.com/steven509/testdash/internal/logformat"
@@ -167,4 +169,17 @@ func (m *Model) refill() {
 	}
 	m.inspector.builtAt = -1
 	m.version++
+}
+
+// noiseToggle is n, to show the noise a view leaves out, or to leave it out again; it shows while there is noise.
+func noiseToggle(showing *bool, noisy func() int, refill func()) binding {
+	label := "Show noise"
+	if *showing {
+		label = "Hide noise"
+	}
+	return bind("n", label, func() tea.Cmd {
+		*showing = !*showing
+		refill()
+		return nil
+	}).when(func() bool { return *showing || noisy() > 0 })
 }

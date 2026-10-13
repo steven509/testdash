@@ -29,27 +29,28 @@ type view interface {
 // line even when the simplified view hides part of it. Simplified or full lines and the time column are the
 // app's settings, so every log shows them alike. Scrolling up pauses following; End or f resumes it.
 type logView struct {
-	source     func() []*logformat.Line
-	info       func() string
-	pattern    *regexp.Regexp
-	errorsOnly bool
-	noise      noiseMarks[*logformat.Line]
-	showNoise  bool
-	service    string        // whose log it is, for noise rules
-	onlyTrace  func() string // the trace every view is narrowed to, if one
-	window     *window
-	styleShown int
-	rows       []string
-	rowLines   []*logformat.Line // the line each row is of
-	screen     []int             // the row each line on screen shows, as last drawn
-	wrap       bool
-	follow     bool
-	top, sub   int // the first line shown when not following: a row, and a line of it when wrapped
-	hscroll    int
-	input      *lineInput
-	inputShown bool
-	width      int
-	height     int
+	source       func() []*logformat.Line
+	info         func() string
+	pattern      *regexp.Regexp
+	errorsOnly   bool
+	noise        noiseMarks[*logformat.Line]
+	showNoise    bool
+	service      string        // whose log it is, for noise rules
+	onlyTrace    func() string // the trace every view is narrowed to, if one
+	noiseLeftOut int           // lines the noise rules left out of the rows
+	window       *window
+	styleShown   int
+	rows         []string
+	rowLines     []*logformat.Line // the line each row is of
+	screen       []int             // the row each line on screen shows, as last drawn
+	wrap         bool
+	follow       bool
+	top, sub     int // the first line shown when not following: a row, and a line of it when wrapped
+	hscroll      int
+	input        *lineInput
+	inputShown   bool
+	width        int
+	height       int
 }
 
 func newLogView(source func() []*logformat.Line, info func() string) *logView {
@@ -102,12 +103,16 @@ func (v *logView) isNoise(line *logformat.Line) bool {
 func (v *logView) addRows(m *Model, lines []*logformat.Line) {
 	simple, showTime := m.logSimple, m.logTime
 	for _, line := range lines {
-		if v.shown(line) {
-			rows := strings.Split(line.Render(simple, showTime), "\n")
-			v.rows = append(v.rows, rows...)
-			for range rows {
-				v.rowLines = append(v.rowLines, line)
+		if !v.shown(line) {
+			if !v.showNoise && v.isNoise(line) {
+				v.noiseLeftOut++
 			}
+			continue
+		}
+		rows := strings.Split(line.Render(simple, showTime), "\n")
+		v.rows = append(v.rows, rows...)
+		for range rows {
+			v.rowLines = append(v.rowLines, line)
 		}
 	}
 }
@@ -130,7 +135,7 @@ func (v *logView) clear() {
 }
 
 func (v *logView) rerender(m *Model) {
-	v.rows, v.rowLines = nil, nil
+	v.rows, v.rowLines, v.noiseLeftOut = nil, nil, 0
 	source := v.source()
 	v.addRows(m, source[max(0, len(source)-maxLogRows):])
 	if len(v.rows) > maxLogRows {
@@ -328,11 +333,7 @@ func (v *logView) levels(m *Model, focus any) []level {
 			v.rerender(m)
 			return nil
 		}),
-		bind("n", "Noise", func() tea.Cmd {
-			v.showNoise = !v.showNoise
-			v.rerender(m)
-			return nil
-		}).hidden(),
+		noiseToggle(&v.showNoise, func() int { return v.noiseLeftOut }, func() { v.rerender(m) }),
 		bind("N", "Hide as noise", func() tea.Cmd {
 			pattern := ""
 			if v.pattern != nil {
