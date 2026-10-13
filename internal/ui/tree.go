@@ -544,6 +544,7 @@ func (t *testTree) levels(m *Model) []level {
 		}),
 		bind("a", "Select all", func() tea.Cmd { t.pick(m, ""); return nil }).hidden(),
 		m.copyFailure(t.cursor),
+		m.inspector.traceToggle().when(func() bool { return m.inspector.hasEvents(t.cursor) }),
 		bind("u", "Unselect passed", func() tea.Cmd { m.unselectPassed(); return nil }).when(m.selectionPassed),
 		bind("esc", "Clear", func() tea.Cmd {
 			if t.text != "" || t.show != "all" {

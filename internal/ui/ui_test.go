@@ -1151,12 +1151,17 @@ func TestEventsByTrace(t *testing.T) {
 		At: at.Add(400 * time.Millisecond), Connection: "c", Kind: "GET", Args: []string{"GET", "cart:7"}, Text: "GET cart:7"}}})
 
 	m.tree.cursor = "t1"
-	screen(m)
+	if s := screen(m); !strings.Contains(s, "t  By trace") || !strings.Contains(s, "t groups them by trace") {
+		t.Fatalf("a test's events offer to group by trace from the tests:\n%s", s)
+	}
 	press(m, "3")
 	if !strings.Contains(screen(m), "t  By trace") {
 		t.Fatalf("the events offer to group by trace:\n%s", screen(m))
 	}
 	press(m, "t")
+	if !strings.Contains(screen(m), "by trace · t puts them in time order") {
+		t.Errorf("the heading says the events are by trace:\n%s", screen(m))
+	}
 	var rows []string
 	for _, ev := range m.inspector.timeline {
 		rows = append(rows, ev.source+" "+ansi.Strip(ev.summary))

@@ -55,9 +55,10 @@ queries) and a dot for whether it runs.
   command, and warning or error the application logged while it ran, in time order. Select one to see all of
   it below; `enter` opens it in its service's view, narrowed to the test's time, and `c` copies it: a request
   as a curl command, a query or command, or a message's payload. On a failed test, `c` copies its failure. `t`
-  groups the events by the trace they belong to (from `traceparent` and B3 headers, Spring Boot's log
-  correlation and sqlcommenter comments): each trace with all of its events in the run, those after the test as
-  well, as a consumer or a scheduled job goes on with it, and the application's log lines that carry it.
+  (in the tests as well, or a click on the heading) groups the events by the trace they belong to (from
+  `traceparent` and B3 headers, Spring Boot's log correlation and sqlcommenter comments): each trace with all of
+  its events in the run, those after the test as well, as a consumer or a scheduled job goes on with it, and the
+  application's log lines that carry it.
 - *Gradle or a service*: its log, or WireMock's requests (with the closest stub for each unmatched one), stubs
   and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's
   queries or Redis's commands, and log. A SQL query shows laid out over lines and coloured, or as the database

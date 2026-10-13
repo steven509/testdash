@@ -183,7 +183,12 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 		return append(out, section("During this test", r.w, ""), "",
 			style.Dim.Render("Nothing reached the services while it ran."))
 	}
-	out = append(out, section("During this test", r.w, count(eventCount(in.timeline), "event")))
+	order := "t groups them by trace"
+	if in.byTrace {
+		order = "by trace · t puts them in time order"
+	}
+	m.addZone(zone{r: rect{r.x, r.y + len(out), r.w, 1}, click: func(int, int) tea.Cmd { return in.traceToggle().run() }})
+	out = append(out, section("During this test", r.w, count(eventCount(in.timeline), "event")+" · "+order))
 	rest--
 	tableHeight := max(3, min(len(in.timeline)+1, (rest-1)/2))
 	in.layout.tableHeight = tableHeight
@@ -210,12 +215,7 @@ func (in *inspector) levels(m *Model, focus any) []level {
 	switch focus {
 	case in.events:
 		events := tableLevel(in.events, "Open in its service", func() tea.Cmd { in.open(m); return nil })
-		events.bindings = append(events.bindings, bind("t", map[bool]string{false: "By trace", true: "Time order"}[in.byTrace],
-			func() tea.Cmd {
-				in.byTrace, in.builtAt = !in.byTrace, -1
-				in.events.cursor, in.events.offset = 0, 0
-				return nil
-			}))
+		events.bindings = append(events.bindings, in.traceToggle())
 		if i := in.events.cursor; i >= 0 && i < len(in.timeline) && in.timeline[i].noise != "" {
 			ev := in.timeline[i]
 			events.bindings = append(events.bindings, bind("N", "Hide as noise", func() tea.Cmd {
@@ -232,13 +232,28 @@ func (in *inspector) levels(m *Model, focus any) []level {
 	case in.event:
 		return []level{detailLevel(in.event)}
 	}
-	bindings := []binding{m.copyFailure(m.tree.cursor)}
+	bindings := []binding{m.copyFailure(m.tree.cursor),
+		in.traceToggle().when(func() bool { return in.hasEvents(m.tree.cursor) })}
 	if id := m.tree.cursor; id != "" {
 		bindings = append(bindings, bind("enter", "Run "+map[bool]string{true: "class", false: "test"}[m.entries[id] != nil &&
 			m.entries[id].Kind == "class"], func() tea.Cmd { return m.startRun(m.selectionFor(id)) }).
 			when(func() bool { return !m.running() }))
 	}
 	return []level{detailLevel(in.card), {bindings: bindings}}
+}
+
+// traceToggle is t, to group a test's events by the trace they belong to, or put them back in time order.
+func (in *inspector) traceToggle() binding {
+	return bind("t", map[bool]string{false: "By trace", true: "Time order"}[in.byTrace], func() tea.Cmd {
+		in.byTrace, in.builtAt = !in.byTrace, -1
+		in.events.cursor, in.events.offset = 0, 0
+		return nil
+	})
+}
+
+// hasEvents is whether the details show a test's events.
+func (in *inspector) hasEvents(id string) bool {
+	return id != "" && in.builtFor == id && len(in.timeline) > 0
 }
 
 // open shows the selected event in its service's view, narrowed to the test's time.
