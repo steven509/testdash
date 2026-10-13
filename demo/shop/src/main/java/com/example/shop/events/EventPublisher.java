@@ -40,6 +40,10 @@ public final class EventPublisher implements AutoCloseable {
                 .add("source", bytes("shop"))
                 .add("schemaVersion", bytes("3"))
                 .add("contentType", bytes("application/json"));
+        String traceparent = Log.traceparent();
+        if (traceparent != null) {
+            record.headers().add("traceparent", bytes(traceparent));
+        }
         try {
             RecordMetadata sent = producer.send(record).get(10, TimeUnit.SECONDS);
             log.info("Published %s to %s-%d at offset %d", type, topic, sent.partition(), sent.offset());
