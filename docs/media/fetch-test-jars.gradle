@@ -1,0 +1,10 @@
+// Fetches every project's test runtime jars into the Gradle cache, as a test run would, without running anything:
+// testdash compiles its JUnit listener against the JUnit jars there. Usage: ./gradlew -I fetch-test-jars.gradle fetchTestJars
+allprojects {
+    tasks.register('fetchTestJars') {
+        def classpath = configurations.findByName('testRuntimeClasspath')
+        doLast {
+            classpath?.files
+        }
+    }
+}

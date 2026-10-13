@@ -2,8 +2,9 @@
 # Records the README's screenshots and the trailer from the demo shop in demo/shop.
 #
 # Needs Docker, a JDK, Go, VHS (brew install vhs, which brings ttyd and ffmpeg), Google Chrome, and Hack Nerd Font.
-# The demo runs with its own HOME, cache and Gradle home in a work directory, so your settings, run history and
-# Gradle setup stay out of the pictures. Usage: docs/media/make.sh [stills] [trailer] (both when given neither)
+# The demo runs with its own HOME, cache and Gradle home in a work directory, as a fresh checkout would, so your
+# settings, run history and Gradle setup (its init scripts print in Gradle's output) stay out of the pictures and
+# nothing touches them. Usage: docs/media/make.sh [stills] [trailer] (both when given neither)
 set -euo pipefail
 media=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$media/../.." && pwd)
@@ -22,21 +23,19 @@ trap '"${shop[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true' EXIT
 mkdir -p "$work/bin" "$work/home/.config/testdash" "$work/gradle/wrapper" "$work/tapes/shots"
 rm -rf "$work/cache/testdash/history" # each recording starts from the runs warmup makes
 (cd "$repo" && go build -o "$work/bin/testdash" .)
-real_gradle=${GRADLE_USER_HOME:-$HOME/.gradle}
-[[ -e "$work/gradle/wrapper/dists" ]] || ln -s "$real_gradle/wrapper/dists" "$work/gradle/wrapper/dists"
-# Your dependency cache is the demo's read-only one: its Gradle reads what you have and keeps what it fetches in its
-# own, never writing to yours, which another Gradle home must not while your builds use it. testdash finds the
-# JUnit jars it compiles its listener against there too.
-modules="$work/gradle/caches/modules-2"
-mkdir -p "$work/gradle/caches"
-[[ -L $modules ]] && rm "$modules" # as earlier versions of this script linked it
+for link in "$work/gradle/wrapper/dists" "$work/gradle/caches/modules-2"; do
+  if [[ -L $link ]]; then rm "$link"; fi # as earlier versions of this script linked them to yours
+done
+# The demo's Gradle home is its own: the first time, Gradle fetches itself and the demo's dependencies into it. Its
+# test jars are fetched before testdash starts, as testdash compiles its listener against the JUnit jars there.
+(cd "$repo/demo/shop" && GRADLE_USER_HOME="$work/gradle" ./gradlew --quiet -I "$media/fetch-test-jars.gradle" fetchTestJars)
 cp "$media"/tapes/*.tape "$work/tapes/"
 
 # setup.tape starts each recording's shell; its arguments are more variables to export, such as TESTDASH_KEYCAST=1
 setup() {
   cat > "$work/tapes/setup.tape" <<TAPE
 Hide
-Type@2ms "export COLORTERM=truecolor DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker} XDG_CACHE_HOME=$work/cache GRADLE_USER_HOME=$work/gradle GRADLE_RO_DEP_CACHE=$real_gradle/caches HOME=$work/home PATH=$work/bin:\$PATH $*; unset XDG_CONFIG_HOME; cd $repo/demo/shop; PROMPT='%F{magenta}~/shop%f %F{13}❯%f '; clear"
+Type@2ms "export COLORTERM=truecolor DOCKER_CONFIG=${DOCKER_CONFIG:-$HOME/.docker} XDG_CACHE_HOME=$work/cache GRADLE_USER_HOME=$work/gradle HOME=$work/home PATH=$work/bin:\$PATH $*; unset XDG_CONFIG_HOME; cd $repo/demo/shop; PROMPT='%F{magenta}~/shop%f %F{13}❯%f '; clear"
 Enter
 Sleep 500ms
 TAPE
