@@ -312,14 +312,7 @@ func (m *Model) collect(w *window, logs func(*logformat.Line) bool, keep func(*t
 					event.copy = copyable{"payload", *message.Value}
 				}
 				event.noise = messageNoiseText(message)
-				event.trace, _ = trace.FromHeaders(func(name string) string {
-					for _, header := range message.Headers {
-						if strings.EqualFold(header.Name, name) && header.Value != nil {
-							return *header.Value
-						}
-					}
-					return ""
-				})
+				event.trace = messageTrace(message)
 				add(event)
 			}
 		case *dbView:

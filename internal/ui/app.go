@@ -172,6 +172,7 @@ type Model struct {
 	flaky           map[string]bool // the tests the history says are flaky
 	noise           *noise.Filter
 	noiseGeneration int
+	traceFilter     string // the trace every service's view is narrowed to, if one
 	runCommit       string // the commit the run's code was at, and whether the working tree had changes
 	runDirty        bool
 	runFilters      []string

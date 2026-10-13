@@ -9,6 +9,7 @@ import (
 
 	"github.com/steven509/testdash/internal/logformat"
 	"github.com/steven509/testdash/internal/noise"
+	"github.com/steven509/testdash/internal/trace"
 )
 
 const maxLogRows = 20_000
@@ -34,7 +35,8 @@ type logView struct {
 	errorsOnly bool
 	noise      noiseMarks[*logformat.Line]
 	showNoise  bool
-	service    string // whose log it is, for noise rules
+	service    string        // whose log it is, for noise rules
+	onlyTrace  func() string // the trace every view is narrowed to, if one
 	window     *window
 	styleShown int
 	rows       []string
@@ -87,16 +89,14 @@ func (v *logView) shown(line *logformat.Line) bool {
 	if !v.showNoise && v.isNoise(line) {
 		return false
 	}
+	if !inTrace(v.onlyTrace, func() trace.Context { c, _ := trace.FromText(line.Text); return c }) {
+		return false
+	}
 	return v.pattern == nil || v.pattern.MatchString(line.Text)
 }
 
 func (v *logView) isNoise(line *logformat.Line) bool {
 	return v.noise.is(line, func() string { return lineNoiseText(line) })
-}
-
-func (v *logView) forgetNoise(m *Model) {
-	v.noise.forget()
-	v.rerender(m)
 }
 
 func (v *logView) addRows(m *Model, lines []*logformat.Line) {
@@ -171,6 +171,9 @@ func (v *logView) modeNames(m *Model) []string {
 	}
 	if v.showNoise {
 		modes = append(modes, "with noise")
+	}
+	if v.onlyTrace != nil && v.onlyTrace() != "" {
+		modes = append(modes, traceChip(v.onlyTrace()))
 	}
 	if !m.logSimple {
 		modes = append(modes, "full lines")
@@ -293,13 +296,21 @@ func (v *logView) render(m *Model, r rect) []string {
 	out = append(out, v.visible(r.w, height)...)
 	m.addZone(zone{r: rect{r.x, y, r.w, height}, click: func(int, int) tea.Cmd { m.setFocus(v); return nil },
 		menu: func(_, y int) []menuAction {
-			if line := v.lineAt(y); line != nil && v.service != "" {
-				return []menuAction{{label: "Hide lines like this as noise", run: func() tea.Cmd {
-					m.hideAsNoise(v.service, noise.Suggest(lineNoiseText(line)))
-					return nil
-				}}}
+			line := v.lineAt(y)
+			if line == nil || v.service == "" {
+				return nil
 			}
-			return nil
+			actions := []menuAction{{label: "Hide lines like this as noise", run: func() tea.Cmd {
+				m.hideAsNoise(v.service, noise.Suggest(lineNoiseText(line)))
+				return nil
+			}}}
+			if c, ok := trace.FromText(line.Text); ok && m.traceFilter == "" {
+				actions = append(actions, menuAction{label: "Only this trace, everywhere", run: func() tea.Cmd {
+					m.narrowToTrace(c.TraceID)
+					return nil
+				}})
+			}
+			return actions
 		},
 		wheel: v.scroll})
 	return out
@@ -364,6 +375,7 @@ func (v *logView) levels(m *Model, focus any) []level {
 			m.setFocus(v)
 			return nil
 		}).hidden().when(func() bool { return v.inputShown || v.pattern != nil || v.window != nil }),
+		m.allTracesOnEsc(),
 	}}
 	if focus == v.input {
 		return []level{{raw: func(k tea.KeyPressMsg) (bool, tea.Cmd) {

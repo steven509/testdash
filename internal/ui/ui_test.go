@@ -1414,3 +1414,66 @@ func TestLogViewScrollsAndFollows(t *testing.T) {
 		t.Fatalf("a wrapped last line ends the view: %q", got)
 	}
 }
+
+func TestNarrowToATrace(t *testing.T) {
+	m := testModel(t)
+	first, second := "4bf92f3577b34da6a3ce929d0e0e4736", "0af7651916cd43dd8448eb211c80319c"
+	at := time.Now()
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	view := m.serviceEntry(mock).view.(*wiremockView)
+	request := func(id, url, traceID string) wiremock.ServeEvent {
+		raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"POST","url":"` + url + `","headers":` +
+			`{"traceparent":"00-` + traceID + `-00f067aa0ba902b7-01"}},"wasMatched":true}`))
+		return wiremock.ServeEvent{ID: id, At: at, Method: "POST", URL: url, Status: 201, Matched: true, Raw: raw}
+	}
+	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasEvents: true, events: []wiremock.ServeEvent{
+		request("e1", "/payments", first), request("e2", "/shipping", second)}}})
+	broker := services.NewService("kafka", "kafka", "apache/kafka:3.8.0")
+	m.Update(services.Added{Service: broker})
+	messages := m.serviceEntry(broker).view.(*kafkaView)
+	message := func(offset int64, traceID string) kafka.Message {
+		parent := "00-" + traceID + "-a3ce929d0e0e4736-01"
+		return kafka.Message{At: at.Add(time.Duration(offset) * time.Millisecond), Topic: "orders.events", Offset: offset,
+			Headers: []kafka.Header{{Name: "traceparent", Value: &parent}}}
+	}
+	m.Update(kafkaMessagesMsg{view: messages, batch: []kafka.Message{message(1, first), message(2, second)}})
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	m.Update(services.Lines{Service: app, Gen: m.gen, Lines: []*logformat.Line{
+		logformat.NewLine(at, "2026-10-12 15:45:51.006  INFO 1 --- [shop] [exec-1] ["+first+"-00f067aa0ba902b7] c.e.Shop : Paid"),
+		logformat.NewLine(at, "2026-10-12 15:45:51.106  INFO 1 --- [shop] [exec-2] ["+second+"-00f067aa0ba902b7] c.e.Shop : Quoted"),
+	}})
+	log := m.serviceEntry(app).view.(*logView)
+
+	m.serviceList.selectEntry(m, m.serviceEntry(mock))
+	m.setFocus(m.serviceList)
+	m.setFocus(view.requests)
+	press(m, "g")
+	view.requests.moveCursor(0)
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	if !strings.Contains(screen(m), "t  This trace") {
+		t.Fatalf("a request with a trace offers to narrow to it:\n%s", screen(m))
+	}
+	press(m, "t")
+	if m.traceFilter != first || len(view.requests.rows) != 1 || len(messages.table.rows) != 1 {
+		t.Fatalf("t narrows every service to the trace: %q, %d requests, %d messages", m.traceFilter,
+			len(view.requests.rows), len(messages.table.rows))
+	}
+	if rows := strings.Join(log.rows, "\n"); !strings.Contains(rows, "Paid") || strings.Contains(rows, "Quoted") {
+		t.Errorf("the logs show the trace's lines alone:\n%s", rows)
+	}
+	if s := screen(m); !strings.Contains(s, "trace 4bf92f35") || !strings.Contains(s, "t  All traces") {
+		t.Errorf("the view says it is narrowed to a trace:\n%s", s)
+	}
+	press(m, "t")
+	if m.traceFilter != "" || len(view.requests.rows) != 2 || len(messages.table.rows) != 2 {
+		t.Errorf("t again shows every trace: %q, %d requests, %d messages", m.traceFilter, len(view.requests.rows),
+			len(messages.table.rows))
+	}
+	m.narrowToTrace(second)
+	press(m, "esc")
+	if m.traceFilter != "" {
+		t.Error("esc shows every trace")
+	}
+}

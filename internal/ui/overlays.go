@@ -291,7 +291,8 @@ var helpSections = []struct {
 		{"esc", "clear, back"}}},
 	{"Services", [][2]string{{"[ ]", "tabs"}, {"↑ ↓", "rows; details beside"}, {"u", "WireMock: unmatched only"},
 		{"enter", "Kafka: a topic's messages"}, {"h", "Kafka: a message's headers"}, {"n", "show the noise too"},
-		{"N", "hide things like it as noise"}, {"v", "SQL: formatted or raw"}, {"c", "copy: curl, query, command, payload"}}},
+		{"N", "hide things like it as noise"}, {"t", "only its trace, everywhere; again for all"}, {"v", "SQL: formatted or raw"},
+		{"c", "copy: curl, query, command, payload"}}},
 }
 
 func (h *help) key(m *Model, k tea.KeyPressMsg) tea.Cmd {

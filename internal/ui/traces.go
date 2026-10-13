@@ -6,7 +6,10 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/steven509/testdash/internal/jsonx"
+	"github.com/steven509/testdash/internal/kafka"
 	"github.com/steven509/testdash/internal/logformat"
 	"github.com/steven509/testdash/internal/style"
 	"github.com/steven509/testdash/internal/trace"
@@ -142,4 +145,64 @@ func requestTrace(e wiremock.ServeEvent) trace.Context {
 		return ""
 	})
 	return c
+}
+
+// messageTrace is the trace context a Kafka message carries in its headers.
+func messageTrace(message kafka.Message) trace.Context {
+	c, _ := trace.FromHeaders(func(name string) string {
+		for _, header := range message.Headers {
+			if strings.EqualFold(header.Name, name) && header.Value != nil {
+				return *header.Value
+			}
+		}
+		return ""
+	})
+	return c
+}
+
+// narrowToTrace narrows every service's view to one trace, or with "" shows every trace again.
+func (m *Model) narrowToTrace(id string) {
+	m.traceFilter = id
+	m.refill()
+}
+
+// traceBinding is t, to narrow every service to the trace of what is selected, or to show every trace again.
+func (m *Model) traceBinding(selected func() (trace.Context, bool)) binding {
+	label := "This trace"
+	if m.traceFilter != "" {
+		label = "All traces"
+	}
+	return bind("t", label, func() tea.Cmd {
+		if m.traceFilter != "" {
+			m.narrowToTrace("")
+		} else if c, ok := selected(); ok {
+			m.narrowToTrace(c.TraceID)
+		}
+		return nil
+	}).when(func() bool {
+		_, ok := selected()
+		return ok || m.traceFilter != ""
+	})
+}
+
+// allTracesOnEsc is esc, once a view has nothing nearer to clear, to show every trace again.
+func (m *Model) allTracesOnEsc() binding {
+	return bind("esc", "All traces", func() tea.Cmd { m.narrowToTrace(""); return nil }).
+		when(func() bool { return m.traceFilter != "" })
+}
+
+// inTrace is whether something is in the trace a view is narrowed to, or the view is not narrowed.
+func inTrace(only func() string, of func() trace.Context) bool {
+	if only == nil {
+		return true
+	}
+	id := only()
+	return id == "" || of().TraceID == id
+}
+
+func traceChip(id string) string {
+	if id == "" {
+		return ""
+	}
+	return "trace " + id[:min(8, len(id))]
 }

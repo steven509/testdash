@@ -61,7 +61,8 @@ queries) and a dot for whether it runs.
   and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's
   queries or Redis's commands, and log. A SQL query shows laid out over lines and coloured, or as the database
   logged it (`v`); JSON is coloured wherever it shows. `c` copies the request as curl, the query, the command
-  or the message's payload.
+  or the message's payload. `t` on a request, message or query that carries a trace narrows every service to
+  that trace, logs included (a right click on a log line offers it too); `t` or Esc shows every trace again.
 
 <p align="center">
   <img src="docs/images/failure.png" width="880"
@@ -111,7 +112,7 @@ file is up, the dashboard says which container (or process) holds the port.
 | Tests | ↑/↓ move · ←/→ collapse, expand · `space` select · `a` select all shown · `u` unselect the tests that passed · `enter` run the selection, or with none, this test or class · `/` filter · `s` all, failed, not passed or flaky · Esc clears the filter, then the selection |
 | A test's details | ↑/↓ the events while it ran · `enter` open the event in its service · `t` by trace or in time order · `c` copy it · `N` hide things like it as noise · `tab` the event, the stack trace · Esc back |
 | Logs | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · `n` show the noise · `N` hide what the filter finds as noise · ←/→ scroll sideways · Home/End |
-| Services | `[` `]` or ←/→ tabs · ↑/↓ a row, its details beside it · `n` show the noise · `N` hide things like the row as noise · `c` copy it · WireMock `u` unmatched only · Kafka `h` a message's headers or value, `enter` on a topic shows its messages · SQL `v` formatted or raw |
+| Services | `[` `]` or ←/→ tabs · ↑/↓ a row, its details beside it · `n` show the noise · `N` hide things like the row as noise · `c` copy it · `t` every service to the row's trace, or every trace again · WireMock `u` unmatched only · Kafka `h` a message's headers or value, `enter` on a topic shows its messages · SQL `v` formatted or raw |
 
 ## Settings
 

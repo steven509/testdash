@@ -28,6 +28,7 @@ import (
 	"github.com/steven509/testdash/internal/runner"
 	"github.com/steven509/testdash/internal/sqlformat"
 	"github.com/steven509/testdash/internal/style"
+	"github.com/steven509/testdash/internal/trace"
 	"github.com/steven509/testdash/internal/wiremock"
 )
 
@@ -203,6 +204,7 @@ type wiremockView struct {
 	showNoise     bool
 	noiseCount    noiseCount
 	trims         int
+	onlyTrace     func() string
 	runDir        string // where the JUnit listener finds this WireMock and copies its journal
 }
 
@@ -555,7 +557,7 @@ func (v *wiremockView) render(m *Model, r rect) []string {
 		unmatched = "unmatched only"
 	}
 	meta := style.Muted.Render(v.summary()) +
-		modeChips(windowLabel, unmatched, map[bool]string{true: "with noise"}[v.showNoise])
+		modeChips(windowLabel, unmatched, map[bool]string{true: "with noise"}[v.showNoise], traceChip(m.traceFilter))
 	onTab := func() { m.setFocus(v.main()) }
 	out, pane := v.tabLine(m, r, meta, onTab)
 	if v.activeID() == "log" {
@@ -582,6 +584,12 @@ func (v *wiremockView) levels(m *Model, focus any) []level {
 		}).hidden(),
 		bind("esc", "All requests", func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
+		m.allTracesOnEsc(),
+		m.traceBinding(func() (trace.Context, bool) {
+			e, ok := v.selectedRequest()
+			c := requestTrace(e)
+			return c, ok && c.TraceID != ""
+		}),
 		bind("c", "Copy as curl", func() tea.Cmd {
 			e, _ := v.selectedRequest()
 			return m.copyText("the request as curl", curlCommand(e, v.client.BaseURL()))
@@ -645,7 +653,8 @@ func (v *wiremockView) fillRequests() {
 }
 
 func (v *wiremockView) addRequestRow(e wiremock.ServeEvent) {
-	if (v.unmatchedOnly && e.Matched) || !v.window.holds(e.At) || (!v.showNoise && v.isNoise(e)) {
+	if (v.unmatchedOnly && e.Matched) || !v.window.holds(e.At) || (!v.showNoise && v.isNoise(e)) ||
+		!inTrace(v.onlyTrace, func() trace.Context { return requestTrace(e) }) {
 		return
 	}
 	statusStyle := style.Green
@@ -676,7 +685,8 @@ func (v *wiremockView) fillNearMisses() {
 	cursor := v.misses.cursor
 	v.misses.clear()
 	for _, e := range v.events {
-		if e.Matched || !v.window.holds(e.At) || (!v.showNoise && v.isNoise(e)) {
+		if e.Matched || !v.window.holds(e.At) || (!v.showNoise && v.isNoise(e)) ||
+			!inTrace(v.onlyTrace, func() trace.Context { return requestTrace(e) }) {
 			continue
 		}
 		stub := style.Dim.Render("no stub is close")
@@ -869,7 +879,8 @@ type kafkaView struct {
 	noise       noiseMarks[messageID]
 	showNoise   bool
 	noiseCount  noiseCount
-	trims       int // the selected message's details show its headers rather than its value
+	trims       int
+	onlyTrace   func() string // the selected message's details show its headers rather than its value
 	showing     atomic.Bool
 	reset       chan struct{}
 }
@@ -972,6 +983,9 @@ func (v *kafkaView) shown(message kafka.Message) bool {
 		return false
 	}
 	if !v.showNoise && v.isNoise(message) {
+		return false
+	}
+	if !inTrace(v.onlyTrace, func() trace.Context { return messageTrace(message) }) {
 		return false
 	}
 	return v.window.holds(message.At)
@@ -1183,7 +1197,7 @@ func (v *kafkaView) render(m *Model, r rect) []string {
 	v.showing.Store(m.detailFrom == panelServices && m.serviceList.selected(m) == v.entry &&
 		(v.activeID() == "topics" || v.activeID() == "groups"))
 	meta := style.Muted.Render(v.summary()) +
-		modeChips(topic, windowLabel, map[bool]string{true: "with noise"}[v.showNoise])
+		modeChips(topic, windowLabel, map[bool]string{true: "with noise"}[v.showNoise], traceChip(m.traceFilter))
 	out, pane := v.tabLine(m, r, meta, func() { m.setFocus(v.main()) })
 	switch v.activeID() {
 	case "log":
@@ -1204,6 +1218,12 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 			v.filtered(m)
 			return nil
 		}).when(func() bool { return v.topic != "" || v.window != nil }),
+		m.allTracesOnEsc(),
+		m.traceBinding(func() (trace.Context, bool) {
+			message, ok := v.byKey[v.table.cursorKey()]
+			c := messageTrace(message)
+			return c, ok && v.activeID() == "messages" && c.TraceID != ""
+		}),
 		bind("n", "Noise", func() tea.Cmd {
 			v.showNoise = !v.showNoise
 			v.refillMessages()
@@ -1384,6 +1404,7 @@ type dbView struct {
 	noise      noiseMarks[queryID]
 	noiseCount noiseCount
 	trims      int
+	onlyTrace  func() string
 	byKey      map[string]databases.Query
 	table      *table
 	detail     *textbox
@@ -1441,6 +1462,9 @@ func (v *dbView) received(m *Model, batch []databases.Query) {
 
 func (v *dbView) shown(q databases.Query) bool {
 	if !v.showNoise && v.isNoise(q) {
+		return false
+	}
+	if !inTrace(v.onlyTrace, func() trace.Context { c, _ := trace.FromText(q.Text); return c }) {
 		return false
 	}
 	return v.window.holds(q.At)
@@ -1550,7 +1574,7 @@ func (v *dbView) render(m *Model, r rect) []string {
 	if v.showNoise {
 		noise = "with noise"
 	}
-	meta := style.Muted.Render(v.summary()) + modeChips(windowLabel, noise)
+	meta := style.Muted.Render(v.summary()) + modeChips(windowLabel, noise, traceChip(m.traceFilter))
 	out, pane := v.tabLine(m, r, meta, func() { m.setFocus(v.main()) })
 	if v.activeID() == "log" {
 		return append(out, v.log.render(m, pane)...)
@@ -1584,6 +1608,12 @@ func (v *dbView) levels(m *Model, focus any) []level {
 		}),
 		bind("esc", "All "+many, func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
+		m.allTracesOnEsc(),
+		m.traceBinding(func() (trace.Context, bool) {
+			q, ok := v.byKey[v.table.cursorKey()]
+			c, traced := trace.FromText(q.Text)
+			return c, ok && traced && v.activeID() == "queries"
+		}),
 		bind("v", map[bool]string{false: "Raw", true: "Formatted"}[v.showRaw], func() tea.Cmd {
 			v.showRaw = !v.showRaw
 			return nil

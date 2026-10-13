@@ -103,19 +103,19 @@ func (m *Model) noiseFor(service string) func(text string) bool {
 // followNoise has a service's views follow the noise rules.
 func (m *Model) followNoise(entry *svcEntry) {
 	rules, gen := m.noiseFor(entry.svc.Key), func() int { return m.noiseGeneration }
-	key := entry.svc.Key
+	key, only := entry.svc.Key, func() string { return m.traceFilter }
 	switch v := entry.view.(type) {
 	case *logView:
-		v.noise.rules, v.noise.gen, v.service = rules, gen, key
+		v.noise.rules, v.noise.gen, v.service, v.onlyTrace = rules, gen, key, only
 	case *wiremockView:
-		v.noise.rules, v.noise.gen = rules, gen
-		v.log.noise.rules, v.log.noise.gen, v.log.service = rules, gen, key
+		v.noise.rules, v.noise.gen, v.onlyTrace = rules, gen, only
+		v.log.noise.rules, v.log.noise.gen, v.log.service, v.log.onlyTrace = rules, gen, key, only
 	case *kafkaView:
-		v.noise.rules, v.noise.gen = rules, gen
-		v.log.noise.rules, v.log.noise.gen, v.log.service = rules, gen, key
+		v.noise.rules, v.noise.gen, v.onlyTrace = rules, gen, only
+		v.log.noise.rules, v.log.noise.gen, v.log.service, v.log.onlyTrace = rules, gen, key, only
 	case *dbView:
-		v.noise.rules, v.noise.gen = rules, gen
-		v.log.noise.rules, v.log.noise.gen, v.log.service = rules, gen, key
+		v.noise.rules, v.noise.gen, v.onlyTrace = rules, gen, only
+		v.log.noise.rules, v.log.noise.gen, v.log.service, v.log.onlyTrace = rules, gen, key, only
 	}
 }
 
@@ -127,24 +127,42 @@ func (m *Model) setNoise() {
 	if err != nil {
 		m.notify(err.Error(), "A noise rule does not compile", "warning")
 	}
-	m.outputView.forgetNoise(m)
+	m.outputView.noise.forget()
 	for _, entry := range m.svcs {
 		switch v := entry.view.(type) {
 		case *logView:
-			v.forgetNoise(m)
+			v.noise.forget()
 		case *wiremockView:
 			v.noise.forget()
-			v.fillRequests()
-			v.fillNearMisses()
-			v.log.forgetNoise(m)
+			v.log.noise.forget()
 		case *kafkaView:
 			v.noise.forget()
-			v.refillMessages()
-			v.log.forgetNoise(m)
+			v.log.noise.forget()
 		case *dbView:
 			v.noise.forget()
+			v.log.noise.forget()
+		}
+	}
+	m.refill()
+}
+
+// refill lays every view out again, as when what they leave out changed.
+func (m *Model) refill() {
+	m.outputView.rerender(m)
+	for _, entry := range m.svcs {
+		switch v := entry.view.(type) {
+		case *logView:
+			v.rerender(m)
+		case *wiremockView:
+			v.fillRequests()
+			v.fillNearMisses()
+			v.log.rerender(m)
+		case *kafkaView:
+			v.refillMessages()
+			v.log.rerender(m)
+		case *dbView:
 			v.fillQueries()
-			v.log.forgetNoise(m)
+			v.log.rerender(m)
 		}
 	}
 	m.inspector.builtAt = -1
