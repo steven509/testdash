@@ -93,16 +93,25 @@ structured Logstash, ECS and GELF output, and MongoDB's), Kafka, MariaDB/MySQL, 
 line that starts with a timestamp. Lines in other formats are shown as they are. A log follows new lines until
 you scroll up; End or `f` follows again.
 
+**Noise** is what health checks, connection pools and the like send. The databases' session chatter is noise
+from the start; rules of your own hide anything else. `N` on a request, message, query or a test's event, or a
+right click on it or on a log line, opens a rule for things like it: a regular expression over its text, its ids
+and numbers generalised, showing what it matches as you type. A rule is for that service or every service, and
+saved in the build's `.testdash.json`, to share with the team, or in the settings for every build. Noise leaves
+the views, a test's events, the activity and the counts; `n` shows it again in any view, and *Noise filters* in
+the palette lists the rules with what each hides now, to change or remove. A right click anywhere offers what
+can be done with what is under the pointer.
+
 When the run cannot start its containers because a port is taken, as when another run of the same Compose
 file is up, the dashboard says which container (or process) holds the port.
 
 | Where | Keys |
 |---|---|
-| Anywhere | `tab` next panel · `1` `2` `3` tests, services, details · `r` run the selection, or all · `F` run the failed tests · `x` stop (twice kills) · `z` zoom the details · `c` the run's whole command · `ctrl+t` test task · `ctrl+p` or `:` commands · `ctrl+s` settings · `?` keys · `q` quit, after asking |
+| Anywhere | `tab` next panel · `1` `2` `3` tests, services, details · `r` run the selection, or all · `F` run the failed tests · `x` stop (twice kills) · `z` zoom the details · `c` the run's whole command · `H` the runs before · `ctrl+t` test task · `ctrl+p` or `:` commands · `ctrl+s` settings · `?` keys · `q` quit, after asking · a right click offers what can be done with what is under it |
 | Tests | ↑/↓ move · ←/→ collapse, expand · `space` select · `a` select all shown · `u` unselect the tests that passed · `enter` run the selection, or with none, this test or class · `/` filter · `s` all, failed, not passed or flaky · Esc clears the filter, then the selection |
-| A test's details | ↑/↓ the events while it ran · `enter` open the event in its service · `tab` the event, the stack trace · Esc back |
-| Logs | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · ←/→ scroll sideways · Home/End |
-| Services | `[` `]` or ←/→ tabs · ↑/↓ a row, its details beside it · WireMock `u` unmatched only · Kafka `h` a message's headers or value, `enter` on a topic shows its messages · databases `n` session chatter |
+| A test's details | ↑/↓ the events while it ran · `enter` open the event in its service · `t` by trace or in time order · `c` copy it · `N` hide things like it as noise · `tab` the event, the stack trace · Esc back |
+| Logs | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · `n` show the noise · `N` hide what the filter finds as noise · ←/→ scroll sideways · Home/End |
+| Services | `[` `]` or ←/→ tabs · ↑/↓ a row, its details beside it · `n` show the noise · `N` hide things like the row as noise · `c` copy it · WireMock `u` unmatched only · Kafka `h` a message's headers or value, `enter` on a topic shows its messages · SQL `v` formatted or raw |
 
 ## Settings
 
@@ -167,8 +176,9 @@ A `.testdash.json` at the repo root (found from the current directory up to the 
 }
 ```
 
-`command` (a list or a string) replaces the Gradle task, `showTestOutput` is the flag above, and `logs` adds
-views for a `file` or a `command`'s output.
+`command` (a list or a string) replaces the Gradle task, `showTestOutput` is the flag above, `logs` adds
+views for a `file` or a `command`'s output, and `noise` holds the build's noise rules, each a `match` regex and
+an optional `service`, as testdash saves them.
 
 ## How it works
 
