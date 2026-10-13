@@ -1791,3 +1791,11 @@ func TestCucumberFeatures(t *testing.T) {
 	}
 }
 
+func TestNoiseEditorShowsTheBuildsConfigFromHere(t *testing.T) {
+	m := testModel(t)
+	m.opts.ConfigPath = filepath.Join(m.opts.Workdir, ".testdash.json")
+	m.hideAsNoise("wiremock", "^GET /health$")
+	if s := screen(m); !strings.Contains(s, "this build: .testdash.json") {
+		t.Errorf("the build's config is named from where testdash runs:\n%s", s)
+	}
+}

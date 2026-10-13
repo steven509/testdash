@@ -222,7 +222,7 @@ func (e *noiseEditor) render(m *Model, screen []string) {
 	if service == "" {
 		service = "every service"
 	}
-	saved := "this build: " + tildePath(m.opts.ConfigPath)
+	saved := "this build: " + m.workPath(m.opts.ConfigPath)
 	if e.everyBuild {
 		saved = "every build: the settings"
 	}

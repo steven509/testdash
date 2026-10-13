@@ -2,6 +2,7 @@ package ui
 
 import (
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -179,6 +180,14 @@ func newSettingsForm(values settings.Settings, onChange func(settings.Settings))
 	f := &settingsForm{values: values, onChange: onChange}
 	f.status = "Saved in " + tildePath(settings.Path())
 	return f
+}
+
+// workPath is a path from the directory testdash runs in, when it is under it, else as tildePath has it.
+func (m *Model) workPath(path string) string {
+	if rel, err := filepath.Rel(m.opts.Workdir, path); err == nil && !strings.HasPrefix(rel, "..") {
+		return rel
+	}
+	return tildePath(path)
 }
 
 func tildePath(path string) string {
