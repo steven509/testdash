@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"fmt"
 	"os/exec"
 	"strings"
 	"time"
@@ -8,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/steven509/testdash/internal/history"
+	"github.com/steven509/testdash/internal/style"
 )
 
 const keepRuns = 200 // as many as the store keeps
@@ -104,4 +106,65 @@ func (m *Model) recordRun(code int) tea.Cmd {
 		}
 		return nil
 	}
+}
+
+// testHistory is what a test's past runs say: its last results, oldest first, and what changed.
+func (m *Model) testHistory(id string) string {
+	points := m.historyIndex[id]
+	if len(points) == 0 {
+		return ""
+	}
+	recent := points[:min(len(points), 20)]
+	var strip strings.Builder
+	for i := len(recent) - 1; i >= 0; i-- {
+		strip.WriteString(resultStyle(recent[i].Result.Status).Render("■"))
+	}
+	lines := []string{style.Dim.Render("History ") + strip.String() + style.Dim.Render("  "+
+		count(len(recent), "run")+", newest last")}
+	s := history.Summarise(points)
+	switch {
+	case s.FailingFor > 1:
+		lines = append(lines, style.Red.Render(fmt.Sprintf("Failing for %d runs, since %s", s.FailingFor,
+			runLabel(s.Since))))
+	case s.NewFailure:
+		lines = append(lines, style.Red.Render("A new failure: it passed in the run before"))
+	case s.Fixed:
+		lines = append(lines, style.Green.Render("Fixed: it failed in the run before"))
+	}
+	if s.Flaky {
+		lines = append(lines, style.Yellow.Render("Flaky: it has passed and failed on the same code"))
+	}
+	switch {
+	case s.Slower:
+		lines = append(lines, style.Yellow.Render(fmt.Sprintf("Slower: %s, usually %s",
+			duration(points[0].Result.Took), duration(s.Usually))))
+	case s.Usually > 0:
+		lines = append(lines, style.Dim.Render("Usually "+duration(s.Usually)))
+	}
+	return strings.Join(lines, "\n")
+}
+
+// runLabel names a run by when it ran and the commit it ran.
+func runLabel(run *history.Run) string {
+	label := run.Started.Local().Format("2 Jan 15:04")
+	if run.Commit != "" {
+		label += " (" + run.Commit[:min(7, len(run.Commit))]
+		if run.Dirty {
+			label += " with changes"
+		}
+		label += ")"
+	}
+	return label
+}
+
+func resultStyle(status string) style.Style {
+	switch status {
+	case "passed":
+		return style.Green
+	case "failed", "aborted":
+		return style.Red
+	case "skipped":
+		return style.Yellow
+	}
+	return style.Dim
 }

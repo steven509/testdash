@@ -1023,6 +1023,28 @@ func TestARunIsRecorded(t *testing.T) {
 	}
 }
 
+func TestATestsHistory(t *testing.T) {
+	m := testModel(t)
+	at := time.Date(2026, 10, 12, 10, 42, 0, 0, time.Local)
+	run := func(minutes int, commit, status string, took int64) history.Run {
+		return history.Run{Started: at.Add(time.Duration(minutes) * time.Minute), Commit: commit,
+			Tests: []history.Result{{ID: "t3", Status: status, Took: took}}}
+	}
+	m.setRuns([]history.Run{run(4, "abc1234ff", "failed", 0), run(3, "abc1234ff", "failed", 0),
+		run(2, "0def999", "passed", 600), run(1, "0def999", "passed", 640), run(0, "0def999", "passed", 580)})
+	press(m, "home")
+	for m.tree.cursor != "t3" {
+		press(m, "down")
+	}
+	s := screen(m)
+	for _, want := range []string{"History ■■■■■", "5 runs, newest last", "Failing for 2 runs, since 12 Oct 10:45 (abc1234)",
+		"Usually 0.6s"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the test's details lack %q:\n%s", want, s)
+		}
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {
