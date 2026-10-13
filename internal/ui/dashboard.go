@@ -52,23 +52,22 @@ func (m *Model) dashboard(width, height int) string {
 	if m.running() {
 		b.WriteString("\n" + m.activitySection(width))
 		b.WriteString("\n" + m.classTable(width))
-		used := len(lines(b.String()))
-		if rows := height - used - 2; rows >= 3 {
-			b.WriteString("\n" + section("Live", width, "the newest from the build and the services") + "\n")
-			b.WriteString(m.liveFeed(rows, width))
+	} else {
+		if since := m.sinceLastRun(width); since != "" {
+			b.WriteString("\n" + since)
 		}
-		return b.String()
+		b.WriteString("\n" + m.classTable(width))
+		b.WriteString("\n" + m.activitySection(width))
+		if slow := m.slowest(ids, 5, width); slow != "" {
+			b.WriteString("\n" + section("Slowest", width, "") + "\n" + slow)
+		}
 	}
-	if since := m.sinceLastRun(width); since != "" {
-		b.WriteString("\n" + since)
-	}
-	b.WriteString("\n" + m.classTable(width))
-	b.WriteString("\n" + m.activitySection(width))
-	if slow := m.slowest(ids, 5, width); slow != "" {
-		b.WriteString("\n" + section("Slowest", width, "") + "\n" + slow)
-	}
-	return b.String()
+	rows := max(minLiveRows, height-len(lines(b.String()))-2)
+	b.WriteString("\n" + section("Live", width, "the newest from the build and the services") + "\n")
+	return b.String() + m.liveFeed(rows, width)
 }
+
+const minLiveRows = 8 // the live feed's rows on the overview, when the rest leaves fewer
 
 // commandLine is the run's badge and command on one line, its --tests filters counted rather than listed, or
 // with c, the whole command.

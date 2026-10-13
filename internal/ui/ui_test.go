@@ -1517,3 +1517,22 @@ func TestTheLastRunBeforeTheFirst(t *testing.T) {
 		t.Errorf("F runs the last run's failures, an invocation's parameterised test for it: %v", m.lastSelection)
 	}
 }
+
+func TestTheLiveFeedStaysAfterTheRun(t *testing.T) {
+	m := testModel(t)
+	started := time.Now().Add(-time.Second)
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"POST","url":"/payments"},"wasMatched":true}`))
+	m.Update(wiremockMsg{view: m.serviceEntry(mock).view.(*wiremockView), poll: wiremockPoll{hasEvents: true,
+		events: []wiremock.ServeEvent{{ID: "e1", At: started.Add(100 * time.Millisecond), Method: "POST",
+			URL: "/payments", Status: 201, Matched: true, Raw: raw}}}})
+	runAll(finishRun(t, m, started))
+	m.Update(tea.WindowSizeMsg{Width: 160, Height: 50})
+	if m.running() {
+		t.Fatal("the run is over")
+	}
+	if s := screen(m); !strings.Contains(s, "LIVE  the newest") || !strings.Contains(s, "POST /payments") {
+		t.Errorf("the overview keeps the live feed once the run is over:\n%s", s)
+	}
+}
