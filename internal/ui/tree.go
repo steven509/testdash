@@ -517,7 +517,7 @@ func (t *testTree) levels(m *Model) []level {
 			return handled, nil
 		}, bindings: []binding{bind("enter", "Done", done), bind("esc", "Clear", clear)}}}
 	}
-	return []level{{raw: func(k tea.KeyPressMsg) (bool, tea.Cmd) { return t.key(m, k) }, bindings: []binding{
+	return []level{{raw: func(k tea.KeyPressMsg) (bool, tea.Cmd) { return t.key(m, k) }, bindings: append([]binding{
 		bind("space", "Select", func() tea.Cmd {
 			t.pick(m, t.cursor)
 			if m.selectable[t.cursor] { // on to the next test; a class stays, to see what it selected
@@ -554,7 +554,7 @@ func (t *testTree) levels(m *Model) []level {
 			}
 			return nil
 		}).when(func() bool { return t.text != "" || t.show != "all" || len(m.selected) > 0 }),
-	}}}
+	}, m.inspector.tabKeys(m)...)}}
 }
 
 func (t *testTree) nextShow() string {

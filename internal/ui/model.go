@@ -580,6 +580,10 @@ func (m *Model) inputChanged(input *lineInput) tea.Cmd {
 	if input == m.tree.filter {
 		return m.tree.inputChanged(m, input)
 	}
+	if input == m.inspector.live.input {
+		m.inspector.live.filterChanged()
+		return nil
+	}
 	for _, v := range m.logViews() {
 		if v.input == input {
 			return v.inputChanged(m, input)

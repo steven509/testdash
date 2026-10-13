@@ -50,12 +50,12 @@ func (m *Model) dashboard(width, height int) string {
 	}
 	if m.running() {
 		b.WriteString("\n" + m.activitySection(width))
-		b.WriteString("\n" + m.classTable(width))
+		b.WriteString("\n" + m.classTable(width, false))
 	} else {
 		if since := m.sinceLastRun(width); since != "" {
 			b.WriteString("\n" + since)
 		}
-		b.WriteString("\n" + m.classTable(width))
+		b.WriteString("\n" + m.classTable(width, false))
 		b.WriteString("\n" + m.activitySection(width))
 		if slow := m.slowest(ids, 5, width); slow != "" {
 			b.WriteString("\n" + section("Slowest", width, "") + "\n" + slow)
@@ -164,8 +164,8 @@ func (m *Model) runClasses() []classRow {
 }
 
 // classTable is every class in the run on the run's time line: when it was setting up (a thin line), when each
-// of its tests ran, coloured by how it did, and how far it got.
-func (m *Model) classTable(width int) string {
+// of its tests ran, coloured by how it did, and how far it got; with tests, each test under its class as well.
+func (m *Model) classTable(width int, tests bool) string {
 	rows := m.runClasses()
 	if len(rows) == 0 {
 		return ""
@@ -196,7 +196,7 @@ func (m *Model) classTable(width int) string {
 		}
 		mark, markStyle := icon(status)
 		cells := make([]style.Cell, barWidth)
-		draw := func(from, to int64, cell style.Cell) {
+		draw := func(cells []style.Cell, from, to int64, cell style.Cell) {
 			if from == 0 {
 				return
 			}
@@ -208,10 +208,10 @@ func (m *Model) classTable(width int) string {
 			}
 		}
 		class := m.state(r.entry.ID)
-		draw(class.StartedAt, class.FinishedAt, style.Cell{Char: "─", Color: style.SubtleText})
+		draw(cells, class.StartedAt, class.FinishedAt, style.Cell{Char: "─", Color: style.SubtleText})
 		for _, leaf := range r.leaves {
 			state := m.state(leaf)
-			draw(state.StartedAt, state.FinishedAt, style.Cell{Char: "━", Color: statusColor(state.Status)})
+			draw(cells, state.StartedAt, state.FinishedAt, style.Cell{Char: "━", Color: statusColor(state.Status)})
 		}
 		var counts []string
 		if r.passed > 0 {
@@ -234,6 +234,25 @@ func (m *Model) classTable(width int) string {
 		b.WriteString(markStyle.Render(mark) + " " + fit(name, nameWidth, true) + " " + style.Cells(cells) + " " +
 			fit(style.Dim.Render(compact(r.done())+"/"+compact(r.total)), 7, false) +
 			fit(strings.Join(counts, " "), countsWidth-6, false) + style.Dim.Render(fmt.Sprintf("%6s", took)) + "\n")
+		if !tests {
+			continue
+		}
+		for _, leaf := range r.leaves {
+			state, entry := m.state(leaf), m.entries[leaf]
+			if entry == nil {
+				continue
+			}
+			cells := make([]style.Cell, barWidth)
+			draw(cells, state.StartedAt, state.FinishedAt, style.Cell{Char: "━", Color: statusColor(state.Status)})
+			mark, markStyle := icon(state.Status)
+			names := append(m.groupOf(entry), cleanText(entry.Name))
+			took := ""
+			if t, ok := state.Took(nowMillis); ok {
+				took = duration(t)
+			}
+			b.WriteString(markStyle.Render(mark) + " " + fit(style.Muted.Render("  "+strings.Join(names[1:], " › ")), nameWidth, true) +
+				" " + style.Cells(cells) + " " + strings.Repeat(" ", countsWidth+1) + style.Dim.Render(fmt.Sprintf("%6s", took)) + "\n")
+		}
 	}
 	return b.String()
 }
@@ -287,9 +306,27 @@ func (m *Model) activitySection(width int) string {
 	return m.activityText
 }
 
+const activityLabelWidth, activityTotalWidth = 18, 18
+
 func (m *Model) drawActivity(width int, start time.Time, span time.Duration) string {
-	const labelWidth, totalWidth = 18, 18
-	buckets := max(10, width-labelWidth-totalWidth-2)
+	var b strings.Builder
+	b.WriteString(section("Activity", width, "since the run started, "+duration(span.Milliseconds())+" ago") + "\n")
+	for _, row := range m.activityRows(activityBuckets(width), start, span) {
+		b.WriteString(row.heading() + " " + style.Sparkline(row.counts, row.colorOf) + " " + style.Dim.Render(row.total) + "\n")
+	}
+	return b.String()
+}
+
+func activityBuckets(width int) int {
+	return max(10, width-activityLabelWidth-activityTotalWidth-2)
+}
+
+func (row activityRow) heading() string {
+	return fit(style.Dim.Render(row.icon+" ")+cleanText(row.label), activityLabelWidth, true)
+}
+
+// activityRows count what each source did in each of so many slices of the run.
+func (m *Model) activityRows(buckets int, start time.Time, span time.Duration) []activityRow {
 	bucket := func(at time.Time) int {
 		if at.Before(start) {
 			return -1
@@ -411,15 +448,7 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 			}, total})
 		}
 	}
-
-	var b strings.Builder
-	b.WriteString(section("Activity", width, "since the run started, "+duration(span.Milliseconds())+" ago") + "\n")
-	for _, row := range rows {
-		label := style.Dim.Render(row.icon+" ") + cleanText(row.label)
-		b.WriteString(fit(label, labelWidth, true) + " " + style.Sparkline(row.counts, row.colorOf) + " " +
-			style.Dim.Render(row.total) + "\n")
-	}
-	return b.String()
+	return rows
 }
 
 // liveFeed is the newest of everything the run shows, one line each.

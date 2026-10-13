@@ -77,7 +77,7 @@ func (m *Model) logEvent(entry *svcEntry, lines []*logformat.Line, i int) timeli
 	}
 	follow := continuation(lines, i)
 	context, _ := trace.FromText(line.Text)
-	return timelineEvent{at: line.At, source: "LOG", color: color, trace: context, noise: lineNoiseText(line),
+	event := timelineEvent{at: line.At, source: "LOG", color: color, trace: context, noise: lineNoiseText(line),
 		summary: summary, service: entry, copy: copyable{"line", line.Text},
 		detail: func() string {
 			var b strings.Builder
@@ -87,11 +87,16 @@ func (m *Model) logEvent(entry *svcEntry, lines []*logformat.Line, i int) timeli
 			}
 			return b.String()
 		}}
+	if log, ok := entry.view.(*logView); ok {
+		event.reveal = func() { log.reveal(line) }
+	}
+	return event
 }
 
-func gradleEvent(line *logformat.Line) timelineEvent {
+func (m *Model) gradleEvent(line *logformat.Line) timelineEvent {
 	return timelineEvent{at: line.At, source: "gradle", color: style.Primary, summary: strings.TrimSpace(cleanText(line.Text)),
-		detail: func() string { return line.Text }, copy: copyable{"line", line.Text}}
+		detail: func() string { return line.Text }, copy: copyable{"line", line.Text},
+		reveal: func() { m.outputView.reveal(line) }}
 }
 
 // feed is everything the run has shown, in time order: Gradle's output, the applications' log records, the
@@ -125,7 +130,7 @@ func (m *Model) feed(limit int) []timelineEvent {
 	output, gradle := m.output.all(), from("gradle", style.Primary)
 	logs(output, func(line *logformat.Line) bool {
 		return strings.TrimSpace(cleanText(line.Text)) != "" && !m.outputView.isNoise(line)
-	}, func(i int) bool { return gradle(gradleEvent(output[i])) })
+	}, func(i int) bool { return gradle(m.gradleEvent(output[i])) })
 	for _, entry := range m.orderedServices() {
 		key := entry.svc.Key
 		switch v := entry.view.(type) {

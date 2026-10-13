@@ -154,6 +154,8 @@ type Model struct {
 	fullCommand   bool   // the dashboard shows the run's whole command, not one line of it
 	activityText  string // the dashboard's activity, drawn when the key changes
 
+	activityChartKey, activityChartText string // the activity at full size, likewise
+
 	width, height   int
 	spinner         spinner.Model
 	spinning        bool

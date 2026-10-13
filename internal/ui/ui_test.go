@@ -753,7 +753,7 @@ func TestRunShowsTheRunAndUnselectsThePassed(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	m.Update(runDoneMsg{code: 1})
-	if s := screen(m); !strings.Contains(s, "All tests") || strings.Contains(s, "Overview") {
+	if s := screen(m); !strings.Contains(s, "All tests") || strings.Contains(s, "Overview · ") {
 		t.Error("once the run is done, the first row is all the tests again")
 	}
 	m.inRun = map[string]bool{"t1": true, "t3": true, "t4": true}
@@ -1534,5 +1534,90 @@ func TestTheLiveFeedStaysAfterTheRun(t *testing.T) {
 	}
 	if s := screen(m); !strings.Contains(s, "LIVE  the newest") || !strings.Contains(s, "POST /payments") {
 		t.Errorf("the overview keeps the live feed once the run is over:\n%s", s)
+	}
+}
+
+// clickOn clicks the first place on screen showing text.
+func clickOn(t *testing.T, m *Model, text string) {
+	t.Helper()
+	for y, line := range strings.Split(screen(m), "\n") {
+		if x := strings.Index(line, text); x >= 0 {
+			m.Update(tea.MouseClickMsg{X: ansi.StringWidth(line[:x]), Y: y, Button: tea.MouseLeft})
+			return
+		}
+	}
+	t.Fatalf("%q is not on screen:\n%s", text, screen(m))
+}
+
+func TestTheRunsParts(t *testing.T) {
+	m := testModel(t)
+	started := time.Now().Add(-2 * time.Second)
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"POST","url":"/payments"},"wasMatched":true}`))
+	m.Update(wiremockMsg{view: m.serviceEntry(mock).view.(*wiremockView), poll: wiremockPoll{hasEvents: true,
+		events: []wiremock.ServeEvent{{ID: "e1", At: started.Add(100 * time.Millisecond), Method: "POST",
+			URL: "/payments", Status: 201, Matched: true, Raw: raw}}}})
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	m.Update(services.Lines{Service: app, Gen: m.gen, Lines: []*logformat.Line{
+		logformat.NewLine(started.Add(200*time.Millisecond), "2026-10-12 15:45:51.006  INFO 1 --- [shop] [exec-1] c.e.Shop : Order 7 placed")}})
+	runAll(finishRun(t, m, started))
+	m.Update(outputMsg{lines: []string{"BUILD SUCCESSFUL in 2s"}})
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	for _, tab := range []string{"Overview", "Live", "Activity", "Classes"} {
+		if !strings.Contains(screen(m), tab) {
+			t.Fatalf("the run's details have a %s tab:\n%s", tab, screen(m))
+		}
+	}
+
+	clickOn(t, m, "LIVE  the newest")
+	if m.inspector.overview.activeID() != "live" || m.focus != m.inspector.live.table {
+		t.Fatalf("a click on the live feed's heading opens it in full: %s", m.inspector.overview.activeID())
+	}
+	s := screen(m)
+	for _, want := range []string{"POST /payments", "INFO Order 7 placed", "BUILD SUCCESSFUL", "failed (exit 1)",
+		"4 events"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the live feed lacks %q:\n%s", want, s)
+		}
+	}
+	press(m, "/")
+	for _, r := range "payments" {
+		press(m, string(r))
+	}
+	press(m, "enter")
+	if len(m.inspector.live.events) != 1 || !strings.Contains(screen(m), "/payments") {
+		t.Errorf("/ filters the feed: %d events", len(m.inspector.live.events))
+	}
+	if !strings.Contains(screen(m), "Copy request as curl") {
+		t.Errorf("the feed offers to copy the request:\n%s", screen(m))
+	}
+	press(m, "enter")
+	if m.detailFrom != panelServices || m.serviceList.selected(m) != m.serviceEntry(mock) {
+		t.Fatal("enter opens the event in its service")
+	}
+
+	press(m, "1", "home", "3")
+	press(m, "esc")
+	if len(m.inspector.live.events) != 4 {
+		t.Errorf("esc clears the filter: %d events", len(m.inspector.live.events))
+	}
+	press(m, "]")
+	if s := screen(m); m.inspector.overview.activeID() != "activity" || !strings.Contains(s, "█") ||
+		!strings.Contains(s, "1 request") {
+		t.Errorf("the activity at full size draws charts:\n%s", s)
+	}
+	press(m, "]")
+	if s := screen(m); m.inspector.overview.activeID() != "classes" || !strings.Contains(s, "when inner › three") {
+		t.Errorf("the classes at full size show each test:\n%s", s)
+	}
+	press(m, "esc")
+	if m.inspector.overview.activeID() != "overview" {
+		t.Errorf("esc goes back to the overview, not %s", m.inspector.overview.activeID())
+	}
+	press(m, "1", "]")
+	if m.inspector.overview.activeID() != "live" || m.focus != m.tree {
+		t.Errorf("] changes the tab from the tests: %s", m.inspector.overview.activeID())
 	}
 }

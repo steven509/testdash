@@ -32,6 +32,9 @@ type inspector struct {
 	byTrace  bool
 	window   *window
 	layout   inspectorLayout
+	overview tabbedView // the run's overview, and its parts at full size
+	live     *liveView
+	runShown bool // the details show the run, as last drawn
 }
 
 type inspectorLayout struct {
@@ -62,13 +65,17 @@ type copyable struct {
 }
 
 func newInspector() *inspector {
-	return &inspector{card: &textbox{}, event: &textbox{}, events: newTable("Time", "Source", "What")}
+	return &inspector{card: &textbox{}, event: &textbox{}, events: newTable("Time", "Source", "What"),
+		overview: newOverviewTabs(), live: newLiveView()}
 }
 
 func (in *inspector) clear()                           {}
 func (in *inspector) append(*Model, []*logformat.Line) {}
 
 func (in *inspector) main() any {
+	if in.runShown {
+		return in.overviewMain()
+	}
 	if in.layout.hasTimeline && len(in.timeline) > 0 {
 		return in.events
 	}
@@ -76,6 +83,12 @@ func (in *inspector) main() any {
 }
 
 func (in *inspector) focusables(m *Model) []any {
+	if in.showsRun(m) && in.overview.activeID() == "live" {
+		if in.live.inputShown {
+			return []any{in.live.input, in.live.table, in.live.event}
+		}
+		return []any{in.live.table, in.live.event}
+	}
 	if in.layout.hasTimeline && len(in.timeline) > 0 {
 		return []any{in.events, in.event, in.card}
 	}
@@ -128,15 +141,12 @@ func (in *inspector) render(m *Model, r rect) []string {
 	id := m.tree.cursor
 	entry := m.entries[id]
 	in.layout = inspectorLayout{cardHeight: r.h}
+	in.runShown = in.showsRun(m)
 	switch {
+	case in.runShown:
+		return in.renderOverview(m, r)
 	case id == "" || entry == nil:
 		in.card.set("run", m.dashboard(r.w, r.h))
-		if in.card.offset == 0 && !m.runStarted.IsZero() { // a click on the command shows or hides all of it
-			defer m.addZone(zone{r: rect{r.x, r.y, r.w, 1}, click: func(int, int) tea.Cmd {
-				m.fullCommand = !m.fullCommand
-				return nil
-			}})
-		}
 	case entry.Kind == "class":
 		in.card.set(id, m.classSummary(id, r.w))
 	default:
@@ -212,6 +222,9 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 }
 
 func (in *inspector) levels(m *Model, focus any) []level {
+	if in.showsRun(m) {
+		return in.overviewLevels(m, focus)
+	}
 	switch focus {
 	case in.events:
 		events := tableLevel(in.events, "Open in its service", func() tea.Cmd { in.open(m); return nil })
@@ -269,6 +282,14 @@ func (m *Model) openEvent(ev timelineEvent, w *window) {
 	entry := ev.service
 	m.serviceList.selectEntry(m, entry)
 	m.detailFrom = panelServices
+	if entry == nil { // Gradle's output
+		m.outputView.setWindow(m, w)
+		if ev.reveal != nil {
+			ev.reveal()
+		}
+		m.focus = m.outputView.main()
+		return
+	}
 	switch v := entry.view.(type) {
 	case *logView:
 		v.setWindow(m, w)

@@ -443,6 +443,16 @@ func (v *logView) key(k tea.KeyPressMsg) bool {
 	return true
 }
 
+// reveal scrolls the log to a line, if it shows, which stops following.
+func (v *logView) reveal(line *logformat.Line) {
+	for i, shown := range v.rowLines {
+		if shown == line {
+			v.follow, v.top, v.sub = false, max(0, i-v.height/3), 0
+			return
+		}
+	}
+}
+
 // lineAt is the line shown on a row of the log on screen.
 func (v *logView) lineAt(y int) *logformat.Line {
 	if y < 0 || y >= len(v.screen) || v.screen[y] >= len(v.rowLines) {

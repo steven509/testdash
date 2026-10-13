@@ -289,6 +289,36 @@ func Sparkline(counts []int, colorOf func(i int) color.Color) string {
 	return b.String()
 }
 
+// Chart is a bar chart rows lines tall, a bar for each count, the largest count the full height.
+func Chart(counts []int, rows int, colorOf func(i int) color.Color) []string {
+	const levels = "▁▂▃▄▅▆▇█"
+	peak := 0
+	for _, c := range counts {
+		peak = max(peak, c)
+	}
+	out := make([]string, rows)
+	for r := range out {
+		below := (rows - 1 - r) * 8 // eighths of a cell under this line
+		var b strings.Builder
+		for i, c := range counts {
+			height := 0
+			if c > 0 {
+				height = (c*rows*8 + peak - 1) / peak
+			}
+			switch fill := height - below; {
+			case fill <= 0 && r == rows-1:
+				b.WriteString(LineText.Render("▁"))
+			case fill <= 0:
+				b.WriteString(" ")
+			default:
+				b.WriteString(fg(colorOf(i)).Styled(string([]rune(levels)[min(8, fill)-1])))
+			}
+		}
+		out[r] = b.String()
+	}
+	return out
+}
+
 // Cell is one character of a picture drawn cell by cell, such as a timeline.
 type Cell struct {
 	Char  string
