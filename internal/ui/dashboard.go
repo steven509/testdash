@@ -341,10 +341,13 @@ func (m *Model) activityGrid(columns int, span time.Duration) time.Duration {
 	return step
 }
 
-// activityRows count what each source did in each of so many slices of the run.
+// activityRows count what each source did in each of so many slices of the run, leaving out what came before
+// it started or after it ended (or now, while it goes).
 func (m *Model) activityRows(buckets int, start time.Time, step time.Duration) []activityRow {
+	_, span := m.runSpan()
+	end := start.Add(span)
 	bucket := func(at time.Time) int {
-		if at.Before(start) {
+		if at.Before(start) || at.After(end) {
 			return -1
 		}
 		return min(buckets-1, int(at.Sub(start)/step))

@@ -1645,3 +1645,19 @@ func TestActivityColumnsKeepTheirCounts(t *testing.T) {
 		}
 	}
 }
+
+func TestActivityLeavesOutWhatCameAfterTheRun(t *testing.T) {
+	m := testModel(t)
+	start := time.Now().Add(-time.Minute)
+	m.runStarted, m.runFinished = start, start.Add(10*time.Second)
+	lines := []*logformat.Line{logformat.NewLine(start.Add(5*time.Second), "during")}
+	for i := 0; i < 20; i++ {
+		lines = append(lines, logformat.NewLine(start.Add(30*time.Second), "after"))
+	}
+	m.output.add(lines...)
+	start, span := m.runSpan()
+	counts := m.activityRows(100, start, m.activityGrid(100, span))[1].counts
+	if counts[len(counts)-1] != 0 {
+		t.Errorf("what came after the run is not counted in its last moment: %v", counts)
+	}
+}
