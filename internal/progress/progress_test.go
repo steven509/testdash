@@ -46,3 +46,20 @@ func TestPollReadsCompleteLinesOnly(t *testing.T) {
 		t.Errorf("an unknown test is pending")
 	}
 }
+
+func TestARetryThatPassesIsFlaky(t *testing.T) {
+	dir := t.TempDir()
+	events := `{"event":"started","at":1,"id":"t"}
+{"event":"finished","at":2,"id":"t","status":"FAILED","message":"boom","trace":"java.lang.AssertionError: boom"}
+{"event":"started","at":3,"id":"t"}
+{"event":"finished","at":4,"id":"t","status":"SUCCESSFUL"}
+`
+	if err := os.WriteFile(filepath.Join(dir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p := New(dir)
+	p.Poll()
+	if state := p.State("t"); state.Status != "passed" || !state.Retried || state.Trace != "" {
+		t.Errorf("a pass after a failure in one run: %+v", state)
+	}
+}

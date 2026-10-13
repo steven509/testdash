@@ -37,6 +37,9 @@ type State struct {
 	FinishedAt int64
 	Message    string
 	Trace      string // the failure's stack trace, when the listener sent one
+	// Retried is whether it failed and then passed when run again in the same run, as a retry plugin does: flaky.
+	Retried bool
+	failed  bool // it failed earlier in this run
 }
 
 // Took is how long it ran, up to now while it runs; ok is false before it starts.
@@ -162,10 +165,14 @@ func (p *Progress) apply(e event, changed map[string]bool) {
 			if !ok {
 				status = "failed"
 			}
-			state.Status, state.FinishedAt, state.Message = status, at, message
+			state.Status, state.FinishedAt, state.Message, state.Trace = status, at, message, ""
 			if e.Trace != nil {
 				state.Trace = *e.Trace
 			}
+			if status == "passed" && state.failed {
+				state.Retried = true
+			}
+			state.failed = state.failed || status != "passed"
 		default:
 			state.Status, state.Message, state.FinishedAt = "skipped", message, at
 		}
