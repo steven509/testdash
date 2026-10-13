@@ -13,6 +13,21 @@ testdash is a single Go binary built with [Bubble Tea](https://github.com/charmb
 [Lip Gloss](https://github.com/charmbracelet/lipgloss). It paints its own dark theme, so it looks the same in
 any terminal, and shows a run's progress in the terminal's tab or taskbar where the terminal supports it.
 
+## Quick start
+
+With Go 1.26 or later, Docker, and a JDK for your Gradle build:
+
+```sh
+go install github.com/steven509/testdash@latest   # into $(go env GOPATH)/bin, which should be on your PATH
+cd your-gradle-repo
+testdash
+```
+
+Pick tests with `space` and run them with `r` (with none picked, `r` runs them all), or press `enter` on a test
+or class to run just it. `tab` moves to the services and the details, and `?` lists every key. To try it on
+something first, run `testdash` in [`demo/shop`](demo/shop), a shop whose tests start WireMock, Kafka, MariaDB,
+Postgres, MongoDB and Redis. More in [Use](#use).
+
 https://github.com/user-attachments/assets/ab115325-9d05-4a41-80ee-204ec212ee1c
 
 ## The screen
