@@ -273,7 +273,8 @@ func (m *Model) activityChart(width, height int) string {
 		return m.activityChartText
 	}
 	buckets := activityBuckets(width)
-	rows := m.activityRows(buckets, start, span)
+	step := m.activityGrid(buckets, span)
+	rows := m.activityRows(buckets, start, step)
 	tall := max(1, min(8, (height-3)/max(1, len(rows))-1))
 	var b strings.Builder
 	b.WriteString(section("Activity", width, "since the run started, "+duration(span.Milliseconds())+" ago") + "\n")
@@ -289,7 +290,7 @@ func (m *Model) activityChart(width, height int) string {
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + axis(buckets, span) + "\n")
+	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + axis(buckets, step*time.Duration(buckets)) + "\n")
 	m.activityChartKey, m.activityChartText = key, b.String()
 	return m.activityChartText
 }

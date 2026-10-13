@@ -1621,3 +1621,27 @@ func TestTheRunsParts(t *testing.T) {
 		t.Errorf("] changes the tab from the tests: %s", m.inspector.overview.activeID())
 	}
 }
+
+func TestActivityColumnsKeepTheirCounts(t *testing.T) {
+	m := testModel(t)
+	start := time.Now().Add(-time.Minute)
+	m.runStarted, m.runFinished = start, time.Time{}
+	var lines []*logformat.Line
+	for at := time.Duration(0); at < 30*time.Second; at += 100 * time.Millisecond { // a steady ten lines a second
+		lines = append(lines, logformat.NewLine(start.Add(at), "line"))
+	}
+	m.output.add(lines...)
+	gradle := func(span time.Duration) []int {
+		return m.activityRows(100, start, m.activityGrid(100, span))[1].counts
+	}
+	before, after := gradle(27*time.Second), gradle(28*time.Second) // drawn a second apart
+	if fmt.Sprint(before[:50]) != fmt.Sprint(after[:50]) {
+		t.Errorf("a column counts the same part of the run as it goes on:\n%v\n%v", before[:50], after[:50])
+	}
+	for i, n := range before[:50] {
+		if n != before[0] {
+			t.Errorf("a steady stream draws level columns, not %d then %d at %d", before[0], n, i)
+			break
+		}
+	}
+}

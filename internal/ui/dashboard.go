@@ -311,7 +311,8 @@ const activityLabelWidth, activityTotalWidth = 18, 18
 func (m *Model) drawActivity(width int, start time.Time, span time.Duration) string {
 	var b strings.Builder
 	b.WriteString(section("Activity", width, "since the run started, "+duration(span.Milliseconds())+" ago") + "\n")
-	for _, row := range m.activityRows(activityBuckets(width), start, span) {
+	columns := activityBuckets(width)
+	for _, row := range m.activityRows(columns, start, m.activityGrid(columns, span)) {
 		b.WriteString(row.heading() + " " + style.Sparkline(row.counts, row.colorOf) + " " + style.Dim.Render(row.total) + "\n")
 	}
 	return b.String()
@@ -325,13 +326,28 @@ func (row activityRow) heading() string {
 	return fit(style.Dim.Render(row.icon+" ")+cleanText(row.label), activityLabelWidth, true)
 }
 
+// activityGrid is how much of the run each of so many columns counts. While the run goes it is 100ms, doubled as
+// often as the run needs to fit, so a column keeps the same slice of the run as it grows and two columns merge
+// into one when it doubles; were it the run's time so far over the columns, every column's slice would move each
+// second, and what it counts with it. Once the run is over, it is the run's time over the columns.
+func (m *Model) activityGrid(columns int, span time.Duration) time.Duration {
+	if !m.running() {
+		return max(time.Millisecond, span/time.Duration(columns))
+	}
+	step := 100 * time.Millisecond
+	for step*time.Duration(columns) < span {
+		step *= 2
+	}
+	return step
+}
+
 // activityRows count what each source did in each of so many slices of the run.
-func (m *Model) activityRows(buckets int, start time.Time, span time.Duration) []activityRow {
+func (m *Model) activityRows(buckets int, start time.Time, step time.Duration) []activityRow {
 	bucket := func(at time.Time) int {
 		if at.Before(start) {
 			return -1
 		}
-		return column(at, start, span, buckets)
+		return min(buckets-1, int(at.Sub(start)/step))
 	}
 	var rows []activityRow
 
