@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/steven509/testdash/internal/services"
@@ -16,8 +17,10 @@ import (
 
 // pgLog follows a Postgres server's statements in its log. testdash has the server log every statement with how
 // long it took (log_min_duration_statement = 0), after the time and the backend's process id, and reads them from
-// the container's output. ALTER SYSTEM saves settings in the data directory, so once the server has them, they
-// are taken out of it again: a database kept in a volume does not go on logging after the run.
+// the container's output. ALTER SYSTEM saves the settings in the data directory, and they stay there while testdash
+// follows the server: an idle connection, as a pool keeps, takes a reload only when it next runs a statement, and
+// reads the files then. SwitchOff takes them out again as testdash quits, so a database kept in a volume does not
+// go on logging.
 type pgLog struct {
 	errorHolder
 	service *services.Service
@@ -27,8 +30,28 @@ type pgLog struct {
 var (
 	pgSwitchOn = []string{"ALTER SYSTEM SET log_min_duration_statement = 0",
 		"ALTER SYSTEM SET log_line_prefix = '%n [%p] '", "SELECT pg_reload_conf()"}
-	pgUnsave = []string{"ALTER SYSTEM RESET log_min_duration_statement", "ALTER SYSTEM RESET log_line_prefix"}
+	pgSwitchOff = []string{"ALTER SYSTEM RESET log_min_duration_statement", "ALTER SYSTEM RESET log_line_prefix",
+		"SELECT pg_reload_conf()"}
 )
+
+// switchedOn are the containers whose servers log their statements for testdash: container -> its environment.
+var switchedOn sync.Map
+
+// SwitchOff takes testdash's logging settings out of the Postgres servers it put them in, as it quits.
+func SwitchOff() {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var wg sync.WaitGroup
+	switchedOn.Range(func(container, env any) bool {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			(&pgLog{}).psql(ctx, container.(string), env.(map[string]string), pgSwitchOff...)
+		}()
+		return true
+	})
+	wg.Wait()
+}
 
 var (
 	pgEntry  = regexp.MustCompile(`^(\d+\.\d+) \[(\d+)\] (\w+):  (.*)$`)
@@ -55,24 +78,15 @@ func (p *pgLog) Follow(ctx context.Context, onQueries func([]Query)) {
 
 const clockSlack = 15 * time.Second // Docker's clock (a VM on macOS) can drift from the host's
 
-// switchOn has the server log its statements, waits until it does, and takes the settings out of its data
-// directory again.
+// switchOn has the server log its statements, until SwitchOff.
 func (p *pgLog) switchOn(ctx context.Context, container string) bool {
 	env := services.ContainerEnv(ctx, container)
 	if _, ok := p.psql(ctx, container, env, pgSwitchOn...); !ok {
 		return false
 	}
-	for range 20 {
-		value, ok := p.psql(ctx, container, env, // the server's value: this session sets its own
-			"SELECT reset_val FROM pg_settings WHERE name = 'log_min_duration_statement'")
-		if ok && value == "0" {
-			_, ok = p.psql(ctx, container, env, pgUnsave...)
-			p.setError("")
-			return ok
-		}
-		sleep(ctx, 100*time.Millisecond)
-	}
-	return false
+	switchedOn.Store(container, env)
+	p.setError("")
+	return true
 }
 
 // psql runs statements in the container with its own client, as the image's user, in a session that does not log.

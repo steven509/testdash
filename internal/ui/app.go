@@ -276,6 +276,7 @@ func (m *Model) Init() tea.Cmd {
 func (m *Model) Shutdown() {
 	m.runner.Kill()
 	m.discovery.Kill()
+	databases.SwitchOff()
 	_ = os.RemoveAll(m.opts.RunDir)
 }
 
