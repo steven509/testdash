@@ -2,6 +2,7 @@ package com.example.shop.orders;
 
 import com.example.shop.api.ApiException;
 import com.example.shop.audit.AuditLog;
+import com.example.shop.billing.InvoiceRepository;
 import com.example.shop.catalog.Product;
 import com.example.shop.catalog.ProductRepository;
 import com.example.shop.events.EventPublisher;
@@ -29,15 +30,17 @@ public final class OrderService {
 
     private final ProductRepository products;
     private final OrderRepository orders;
+    private final InvoiceRepository invoices;
     private final ShippingClient shipping;
     private final PaymentClient payments;
     private final EventPublisher events;
     private final AuditLog audit;
 
-    public OrderService(ProductRepository products, OrderRepository orders, ShippingClient shipping,
-            PaymentClient payments, EventPublisher events, AuditLog audit) {
+    public OrderService(ProductRepository products, OrderRepository orders, InvoiceRepository invoices,
+            ShippingClient shipping, PaymentClient payments, EventPublisher events, AuditLog audit) {
         this.products = products;
         this.orders = orders;
+        this.invoices = invoices;
         this.shipping = shipping;
         this.payments = payments;
         this.events = events;
@@ -80,6 +83,8 @@ public final class OrderService {
                     quote.carrier(), payment.id(), reserved);
             long id = orders.insert(order);
             Log.context("order", id);
+            String invoice = invoices.issue(id, customerId, total, reserved);
+            log.info("Invoice %s issued for order %d", invoice, id);
             events.publish("orders.events", String.valueOf(id), "OrderPlaced", traceId, json.createObjectNode()
                     .put("orderId", id)
                     .put("customerId", customerId)

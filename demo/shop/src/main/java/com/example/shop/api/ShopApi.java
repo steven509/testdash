@@ -1,5 +1,6 @@
 package com.example.shop.api;
 
+import com.example.shop.billing.InvoiceRepository;
 import com.example.shop.catalog.Product;
 import com.example.shop.catalog.ProductRepository;
 import com.example.shop.customers.CustomerService;
@@ -30,14 +31,16 @@ public final class ShopApi {
 
     private final ProductRepository products;
     private final OrderService orders;
+    private final InvoiceRepository invoices;
     private final CustomerService customers;
     private final ShippingClient shipping;
     private final EventPublisher events;
 
-    public ShopApi(ProductRepository products, OrderService orders, CustomerService customers, ShippingClient shipping,
-            EventPublisher events) {
+    public ShopApi(ProductRepository products, OrderService orders, InvoiceRepository invoices, CustomerService customers,
+            ShippingClient shipping, EventPublisher events) {
         this.products = products;
         this.orders = orders;
+        this.invoices = invoices;
         this.customers = customers;
         this.shipping = shipping;
         this.events = events;
@@ -91,6 +94,8 @@ public final class ShopApi {
             case "POST /orders" -> orders.place(request, traceId);
             case "GET /orders/{}" -> orders.get(Long.parseLong(parts[1]));
             case "POST /orders/{}/cancel" -> orders.cancel(Long.parseLong(parts[1]), traceId);
+            case "GET /invoices/{}" -> invoices.find(Long.parseLong(parts[1]))
+                    .orElseThrow(() -> new ApiException(404, "unknown_invoice", "There is no invoice for order " + parts[1]));
             case "POST /customers" -> customers.register(request, traceId);
             case "POST /inventory/{}/restock" -> restock(parts[1], request.path("qty").asInt(), traceId);
             case "GET /shipping/{}" -> quote(query, traceId);

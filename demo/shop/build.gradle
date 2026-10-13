@@ -4,6 +4,7 @@ repositories { mavenCentral() }
 
 dependencies {
     implementation 'org.mariadb.jdbc:mariadb-java-client:3.0.10'
+    implementation 'org.postgresql:postgresql:42.7.4'
     implementation 'org.apache.kafka:kafka-clients:3.3.2'
     implementation 'org.mongodb:mongodb-driver-sync:4.6.1'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.21.4'

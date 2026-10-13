@@ -6,7 +6,7 @@ import java.sql.SQLException;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.BlockingQueue;
 
-/** A small pool of MariaDB connections. */
+/** A small pool of JDBC connections. */
 public final class Database {
     private final BlockingQueue<Connection> pool;
 

@@ -2,6 +2,7 @@ package com.example.shop;
 
 import com.example.shop.api.ShopApi;
 import com.example.shop.audit.AuditLog;
+import com.example.shop.billing.InvoiceRepository;
 import com.example.shop.catalog.ProductRepository;
 import com.example.shop.customers.CustomerService;
 import com.example.shop.db.Database;
@@ -28,6 +29,8 @@ public final class ShopApplication {
 
         Database db = Database.connect(env("DB_URL"), env("DB_USER"), env("DB_PASSWORD"), 4);
         log.info("Connected to MariaDB %s (pool of 4)", db.version());
+        Database billing = Database.connect(env("BILLING_DB_URL"), env("BILLING_DB_USER"), env("BILLING_DB_PASSWORD"), 2);
+        log.info("Connected to PostgreSQL %s (pool of 2)", billing.version());
         MongoDatabase mongo = MongoClients.create(env("MONGO_URI")).getDatabase("shop");
         log.info("Connected to MongoDB at %s", env("MONGO_URI"));
         EventPublisher events = new EventPublisher(env("KAFKA_BOOTSTRAP"));
@@ -36,9 +39,10 @@ public final class ShopApplication {
         AuditLog audit = new AuditLog(mongo);
         ProductRepository products = new ProductRepository(db);
         ShippingClient shipping = new ShippingClient(env("SHIPPING_URL"));
-        OrderService orders = new OrderService(products, new OrderRepository(db), shipping,
+        InvoiceRepository invoices = new InvoiceRepository(billing);
+        OrderService orders = new OrderService(products, new OrderRepository(db), invoices, shipping,
                 new PaymentClient(env("PAYMENTS_URL")), events, audit);
-        new ShopApi(products, orders, new CustomerService(mongo, events, audit), shipping, events).listen(PORT);
+        new ShopApi(products, orders, invoices, new CustomerService(mongo, events, audit), shipping, events).listen(PORT);
 
         log.info("Tomcat started on port %d (http) with context path '/'", PORT);
         log.info("Started ShopApplication in %.3f seconds (process running for %.3f)",

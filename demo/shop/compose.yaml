@@ -10,6 +10,9 @@ services:
       DB_URL: jdbc:mariadb://mariadb:3306/shop
       DB_USER: shop
       DB_PASSWORD: shop
+      BILLING_DB_URL: jdbc:postgresql://postgres:5432/billing
+      BILLING_DB_USER: shop
+      BILLING_DB_PASSWORD: shop
       KAFKA_BOOTSTRAP: kafka:9092
       MONGO_URI: mongodb://mongodb:27017
       PAYMENTS_URL: http://wiremock:8080
@@ -23,6 +26,7 @@ services:
       retries: 60
     depends_on:
       mariadb: { condition: service_healthy }
+      postgres: { condition: service_healthy }
       kafka: { condition: service_healthy }
       mongodb: { condition: service_healthy }
       wiremock: { condition: service_healthy }
@@ -75,6 +79,22 @@ services:
     ports: ["13306:3306"]
     healthcheck:
       test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 30s
+      start_period: 60s
+      start_interval: 1s
+      retries: 60
+
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: shop
+      POSTGRES_PASSWORD: shop
+      POSTGRES_DB: billing
+    volumes: ["./postgres:/docker-entrypoint-initdb.d:ro"]
+    tmpfs: ["/var/lib/postgresql/data"]
+    ports: ["15432:5432"]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "shop", "-d", "billing"]
       interval: 30s
       start_period: 60s
       start_interval: 1s
