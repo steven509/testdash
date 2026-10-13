@@ -160,6 +160,7 @@ type Model struct {
 	focus         any
 	detailFrom    panel // the panel whose selection the detail shows
 	zoomed        bool
+	away          bool // the terminal is in the background, as it reports
 	popup         popup
 	toasts        []*toast
 	toastSeq      int
@@ -824,10 +825,13 @@ func (m *Model) runDone(code int) tea.Cmd {
 	if code == 0 {
 		m.addOutput("passed in "+took, "green")
 		m.notify(fmt.Sprintf("%s passed in %s", count(summary.passed, "test"), took), "Passed", "success")
+		cmd = tea.Batch(cmd, m.notifyDesktop(fmt.Sprintf("%s passed in %s", count(summary.passed, "test"), took)))
 	} else {
 		m.addOutput(fmt.Sprintf("failed (exit %d) in %s", code, took), "red")
 		m.notify(fmt.Sprintf("%s of %s tests failed (exit %d)", number(summary.failed), number(summary.total), code),
 			"Failed", "error")
+		cmd = tea.Batch(cmd, m.notifyDesktop(fmt.Sprintf("%s of %s tests failed", number(summary.failed),
+			number(summary.total))))
 	}
 	m.updateClaims()
 	m.version++

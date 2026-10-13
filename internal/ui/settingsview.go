@@ -100,7 +100,15 @@ var settingItems = []settingItem{
 			return "The run's"
 		},
 		change: func(s *settings.Settings, _ int) { s.AllContainers = !s.AllContainers }},
+	{label: "Notifications", help: "A desktop notification when a run ends, through your terminal (iTerm2, WezTerm, " +
+		"Ghostty, kitty, Windows Terminal and more): while you are in another window, always, or never.",
+		value: func(s settings.Settings) string { return notifyLabels[s.Notify] },
+		change: func(s *settings.Settings, step int) {
+			s.Notify = choice([]string{"away", "always", "off"}, s.Notify, step)
+		}},
 }
+
+var notifyLabels = map[string]string{"away": "When away", "always": "Always", "off": "Off"}
 
 // settingsForm shows and changes the settings, saving each change as it is made.
 type settingsForm struct {

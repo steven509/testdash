@@ -20,10 +20,13 @@ type Settings struct {
 	WrapLogs       bool   `json:"wrapLogs"`       // logs start wrapping long lines
 	ShowTestOutput bool   `json:"showTestOutput"` // test stdout stays in Gradle's output
 	AllContainers  bool   `json:"allContainers"`  // follow every container, not only the run's
+	// Notify asks the terminal for a desktop notification when a run ends: away (while the terminal is in the
+	// background), always or off.
+	Notify string `json:"notify"`
 }
 
 func Defaults() Settings {
-	return Settings{Theme: "Violet", Mouse: true, IconSpacing: 1}
+	return Settings{Theme: "Violet", Mouse: true, IconSpacing: 1, Notify: "away"}
 }
 
 // Path is where the settings live.

@@ -185,7 +185,10 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		return m, hideCursor()
 	case tea.FocusMsg:
+		m.away = false
 		return m, hideCursor()
+	case tea.BlurMsg:
+		m.away = true
 	case tea.KeyPressMsg:
 		if m.opts.Keycast == "" {
 			return m, m.key(msg)

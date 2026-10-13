@@ -506,6 +506,38 @@ func TestHighlightJSON(t *testing.T) {
 	}
 }
 
+func TestDesktopNotifications(t *testing.T) {
+	m := testModel(t)
+	for _, c := range []struct {
+		notify string
+		away   bool
+		want   bool
+	}{{"away", true, true}, {"away", false, false}, {"always", false, true}, {"off", true, false}} {
+		m.prefs.Notify, m.away = c.notify, c.away
+		if got := m.notifyDesktop("3 tests passed") != nil; got != c.want {
+			t.Errorf("notify %s, away %v: notified %v", c.notify, c.away, got)
+		}
+	}
+	t.Setenv("KITTY_WINDOW_ID", "")
+	t.Setenv("TERM", "xterm-256color")
+	t.Setenv("TMUX", "")
+	if got := desktopNotification("done"); got != "\x1b]9;done\x07" {
+		t.Errorf("most terminals take iTerm2's notification: %q", got)
+	}
+	t.Setenv("KITTY_WINDOW_ID", "1")
+	if got := desktopNotification("done"); !strings.HasPrefix(got, "\x1b]99;") {
+		t.Errorf("kitty gets its own: %q", got)
+	}
+	m.Update(tea.BlurMsg{})
+	if !m.away {
+		t.Error("the terminal going to the background is noticed")
+	}
+	m.Update(tea.FocusMsg{})
+	if m.away {
+		t.Error("and coming back")
+	}
+}
+
 func TestKafkaMessagesStayInTimeOrder(t *testing.T) {
 	m := testModel(t)
 	service := services.NewService("kafka", "kafka", "apache/kafka:3.8.0")
