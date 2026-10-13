@@ -337,6 +337,9 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 			unmatched := make([]bool, buckets)
 			missed := 0
 			for _, e := range v.events {
+				if v.isNoise(e) {
+					continue
+				}
 				if i := bucket(e.At); i >= 0 {
 					counts[i]++
 					unmatched[i] = unmatched[i] || !e.Matched
@@ -345,7 +348,7 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 					missed++
 				}
 			}
-			total := count(len(v.events), "request")
+			total := count(len(v.events)-v.noisy(), "request")
 			if missed > 0 {
 				total += style.Red.Render(" " + ic.failed + " " + compact(missed))
 			}
@@ -357,7 +360,7 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 			}, total})
 		case *kafkaView:
 			for _, message := range v.messages {
-				if i := bucket(message.At); i >= 0 {
+				if i := bucket(message.At); i >= 0 && !v.isNoise(message) {
 					counts[i]++
 				}
 			}
@@ -371,13 +374,14 @@ func (m *Model) drawActivity(width int, start time.Time, span time.Duration) str
 			}
 			one, many := v.noun()
 			rows = append(rows, activityRow{kindIcon(entry.svc.Kind), entry.svc.Key, counts,
-				func(int) color.Color { return style.Orange }, count(len(v.queries)-v.chatter, one, many)})
+				func(int) color.Color { return style.Orange }, count(len(v.queries)-v.noisy(), one, many)})
 		default:
 			severity := make([]int, buckets)
 			lines := entry.lines.all()
+			log, _ := entry.view.(*logView)
 			for _, line := range lines {
 				i := bucket(line.At)
-				if i < 0 {
+				if i < 0 || log != nil && log.isNoise(line) {
 					continue
 				}
 				counts[i]++
@@ -439,6 +443,9 @@ func (m *Model) liveFeed(n, width int) string {
 		switch v := entry.view.(type) {
 		case *wiremockView:
 			for _, e := range lastN(v.events, n) {
+				if v.isNoise(e) {
+					continue
+				}
 				summary := style.Bold.Render(cleanText(e.Method)) + " " + cleanText(e.URL) + " " + httpStatus(e.Status)
 				if !e.Matched {
 					summary += style.Red.Render("  no stub")
@@ -447,13 +454,16 @@ func (m *Model) liveFeed(n, width int) string {
 			}
 		case *kafkaView:
 			for _, message := range lastN(v.messages, n) {
+				if v.isNoise(message) {
+					continue
+				}
 				add(message.At, key, style.Pink, style.Bold.Render(cleanText(message.Topic))+"  "+
 					style.Dim.Render(preview(message.Value, 80)))
 			}
 		case *dbView:
 			found := 0
 			for i := len(v.queries) - 1; i >= 0 && found < n; i-- {
-				if q := v.queries[i]; !q.Noise() {
+				if q := v.queries[i]; !v.isNoise(q) {
 					text := cleanText(q.Text)
 					summary := preview(&text, 120)
 					if q.Target != "" {
@@ -468,7 +478,7 @@ func (m *Model) liveFeed(n, width int) string {
 			found := 0
 			for i := len(lines) - 1; i >= 0 && found < n && i >= len(lines)-20*n; i-- {
 				line := lines[i]
-				if !feedWorthy(line, entry.svc.IsApp()) {
+				if log, ok := entry.view.(*logView); !feedWorthy(line, entry.svc.IsApp()) || ok && log.isNoise(line) {
 					continue
 				}
 				first, _, _ := strings.Cut(line.Render(true, false), "\n")

@@ -373,6 +373,9 @@ func (m *Model) applySettings(s settings.Settings) {
 	if !slices.Equal(old.HiddenServices, s.HiddenServices) {
 		m.watcher.SetHidden(s.HiddenServices)
 	}
+	if !slices.Equal(old.Noise, s.Noise) {
+		m.setNoise()
+	}
 	m.tree.flatDirty = true
 	m.version++
 }

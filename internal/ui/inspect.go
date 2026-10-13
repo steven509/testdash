@@ -339,6 +339,9 @@ func (m *Model) collect(w *window, logs func(*logformat.Line) bool, keep func(*t
 				if line.At.IsZero() || !w.holds(line.At) || !logs(line) {
 					continue
 				}
+				if log, ok := entry.view.(*logView); ok && log.isNoise(line) {
+					continue
+				}
 				record := line.Record()
 				level, message := "WARN", cleanText(line.Text)
 				if record != nil {

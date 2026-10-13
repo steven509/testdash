@@ -18,6 +18,7 @@ import (
 	"github.com/steven509/testdash/internal/jsonx"
 	"github.com/steven509/testdash/internal/kafka"
 	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/noise"
 	"github.com/steven509/testdash/internal/progress"
 	"github.com/steven509/testdash/internal/services"
 	"github.com/steven509/testdash/internal/settings"
@@ -1170,6 +1171,52 @@ func TestEventsByTrace(t *testing.T) {
 	press(m, "enter")
 	if m.detailFrom == panelServices {
 		t.Error("a trace's heading opens no service")
+	}
+}
+
+func TestNoiseRulesLeaveItemsOut(t *testing.T) {
+	m := testModel(t)
+	m.opts.Noise = []noise.Rule{{Service: "wiremock", Match: `^GET /health`}, {Match: `(?i)housekeeping`}}
+	m.setNoise()
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	view := m.serviceEntry(mock).view.(*wiremockView)
+	request := func(id, method, url string) wiremock.ServeEvent {
+		raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"` + method + `","url":"` + url + `"},"wasMatched":true}`))
+		return wiremock.ServeEvent{ID: id, At: time.Now(), Method: method, URL: url, Status: 200, Matched: true, Raw: raw}
+	}
+	m.Update(wiremockMsg{view: view, poll: wiremockPoll{hasEvents: true, events: []wiremock.ServeEvent{
+		request("e1", "GET", "/health"), request("e2", "POST", "/payments"), request("e3", "GET", "/health")}}})
+	if len(view.requests.rows) != 1 || !strings.Contains(view.summary(), "1 request") ||
+		!strings.Contains(view.summary(), "2 noise") {
+		t.Errorf("health checks are noise: %d rows, %s", len(view.requests.rows), view.summary())
+	}
+	if got := ansi.Strip(serviceStats(m.serviceEntry(mock))); got != "1 req" {
+		t.Errorf("the services list counts what is not noise: %q", got)
+	}
+	m.serviceList.selectEntry(m, m.serviceEntry(mock))
+	m.setFocus(m.serviceList)
+	m.setFocus(view.requests)
+	press(m, "n")
+	m.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
+	if len(view.requests.rows) != 3 || !strings.Contains(screen(m), "with noise") {
+		t.Errorf("n shows the noise: %d rows", len(view.requests.rows))
+	}
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	m.Update(services.Lines{Service: app, Gen: m.gen, Lines: []*logformat.Line{
+		logformat.NewLine(time.Now(), "2026-10-12 15:45:51,006 INFO [main] c.z.h.HikariPool - HikariPool-1 - Housekeeping"),
+		logformat.NewLine(time.Now(), "2026-10-12 15:45:51,106 INFO [main] c.e.Shop - Order 7 placed"),
+	}})
+	log := m.serviceEntry(app).view.(*logView)
+	log.rerender(m)
+	if rows := strings.Join(log.rows, "\n"); strings.Contains(rows, "Housekeeping") || !strings.Contains(rows, "Order 7") {
+		t.Errorf("a rule for every service applies to logs too:\n%s", rows)
+	}
+	m.opts.Noise = nil
+	m.setNoise()
+	if len(view.requests.rows) != 3 {
+		t.Errorf("without the rules nothing is noise: %d rows", len(view.requests.rows))
 	}
 }
 

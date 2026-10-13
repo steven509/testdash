@@ -198,7 +198,11 @@ type wiremockView struct {
 	log           *logView
 	reset         chan struct{}
 	unmatched     chan struct{} // a request no stub matched arrived, so ask for near misses before a reset loses them
-	runDir        string        // where the JUnit listener finds this WireMock and copies its journal
+	noise         noiseMarks[string]
+	showNoise     bool
+	noiseCount    noiseCount
+	trims         int
+	runDir        string // where the JUnit listener finds this WireMock and copies its journal
 }
 
 const (
@@ -426,6 +430,7 @@ func (v *wiremockView) add(events []wiremock.ServeEvent) {
 		}
 		v.events = append([]wiremock.ServeEvent(nil), v.events[len(v.events)-maxRequests:]...)
 		trimmed = true
+		v.trims++
 	}
 	if inOrder && !trimmed {
 		following := len(v.requests.rows) == 0 || v.requests.cursor >= len(v.requests.rows)-1
@@ -511,11 +516,33 @@ func (v *wiremockView) focusables(m *Model) []any {
 func (v *wiremockView) summary() string {
 	unmatched := 0
 	for _, e := range v.events {
-		if !e.Matched {
+		if !e.Matched && !v.isNoise(e) {
 			unmatched++
 		}
 	}
-	return count(len(v.events), "request") + ", " + number(unmatched) + " unmatched, " + count(len(v.stubs), "stub")
+	text := count(len(v.events)-v.noisy(), "request") + ", " + number(unmatched) + " unmatched, " +
+		count(len(v.stubs), "stub")
+	if n := v.noisy(); n > 0 {
+		text += ", " + number(n) + " noise"
+	}
+	return text
+}
+
+func (v *wiremockView) isNoise(e wiremock.ServeEvent) bool {
+	return v.noise.is(e.ID, func() string { return requestNoiseText(e) })
+}
+
+// noisy is how many of the requests are noise.
+func (v *wiremockView) noisy() int {
+	return v.noiseCount.get(len(v.events), v.trims, v.noise.generation(), func() int {
+		n := 0
+		for _, e := range v.events {
+			if v.isNoise(e) {
+				n++
+			}
+		}
+		return n
+	})
 }
 
 func (v *wiremockView) render(m *Model, r rect) []string {
@@ -526,7 +553,8 @@ func (v *wiremockView) render(m *Model, r rect) []string {
 	if v.unmatchedOnly {
 		unmatched = "unmatched only"
 	}
-	meta := style.Muted.Render(v.summary()) + modeChips(windowLabel, unmatched)
+	meta := style.Muted.Render(v.summary()) +
+		modeChips(windowLabel, unmatched, map[bool]string{true: "with noise"}[v.showNoise])
 	onTab := func() { m.setFocus(v.main()) }
 	out, pane := v.tabLine(m, r, meta, onTab)
 	if v.activeID() == "log" {
@@ -545,6 +573,12 @@ func (v *wiremockView) levels(m *Model, focus any) []level {
 			v.fillRequests()
 			return nil
 		}),
+		bind("n", "Noise", func() tea.Cmd {
+			v.showNoise = !v.showNoise
+			v.fillRequests()
+			v.fillNearMisses()
+			return nil
+		}).hidden(),
 		bind("esc", "All requests", func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
 		bind("c", "Copy as curl", func() tea.Cmd {
@@ -605,7 +639,7 @@ func (v *wiremockView) fillRequests() {
 }
 
 func (v *wiremockView) addRequestRow(e wiremock.ServeEvent) {
-	if (v.unmatchedOnly && e.Matched) || !v.window.holds(e.At) {
+	if (v.unmatchedOnly && e.Matched) || !v.window.holds(e.At) || (!v.showNoise && v.isNoise(e)) {
 		return
 	}
 	statusStyle := style.Green
@@ -636,7 +670,7 @@ func (v *wiremockView) fillNearMisses() {
 	cursor := v.misses.cursor
 	v.misses.clear()
 	for _, e := range v.events {
-		if e.Matched || !v.window.holds(e.At) {
+		if e.Matched || !v.window.holds(e.At) || (!v.showNoise && v.isNoise(e)) {
 			continue
 		}
 		stub := style.Dim.Render("no stub is close")
@@ -674,7 +708,7 @@ func (v *wiremockView) fillStubs() {
 func (v *wiremockView) eventsBetween(w *window) []wiremock.ServeEvent {
 	var found []wiremock.ServeEvent
 	for _, e := range v.events {
-		if w.holds(e.At) {
+		if w.holds(e.At) && !v.isNoise(e) {
 			found = append(found, e)
 		}
 	}
@@ -825,7 +859,11 @@ type kafkaView struct {
 	topicTab    *table
 	groupTab    *table
 	log         *logView
-	showHeaders bool // the selected message's details show its headers rather than its value
+	showHeaders bool
+	noise       noiseMarks[messageID]
+	showNoise   bool
+	noiseCount  noiseCount
+	trims       int // the selected message's details show its headers rather than its value
 	showing     atomic.Bool
 	reset       chan struct{}
 }
@@ -904,6 +942,7 @@ func (v *kafkaView) received(m *Model, batch []kafka.Message) {
 	switch {
 	case len(v.messages) > maxMessages:
 		v.messages = append([]kafka.Message(nil), v.messages[len(v.messages)-maxMessages:]...)
+		v.trims++
 		v.refillMessages()
 	case !inOrder:
 		v.refillMessages()
@@ -926,7 +965,28 @@ func (v *kafkaView) shown(message kafka.Message) bool {
 	if v.topic != "" && message.Topic != v.topic {
 		return false
 	}
+	if !v.showNoise && v.isNoise(message) {
+		return false
+	}
 	return v.window.holds(message.At)
+}
+
+func (v *kafkaView) isNoise(message kafka.Message) bool {
+	return v.noise.is(messageID{message.Topic, message.Partition, message.Offset},
+		func() string { return messageNoiseText(message) })
+}
+
+// noisy is how many of the messages are noise.
+func (v *kafkaView) noisy() int {
+	return v.noiseCount.get(len(v.messages), v.trims, v.noise.generation(), func() int {
+		n := 0
+		for _, message := range v.messages {
+			if v.isNoise(message) {
+				n++
+			}
+		}
+		return n
+	})
 }
 
 func (v *kafkaView) fillMessages() {
@@ -1099,7 +1159,11 @@ func (v *kafkaView) summary() string {
 	for _, message := range v.messages {
 		topics[message.Topic] = true
 	}
-	return count(len(v.messages), "message") + " on " + count(len(topics), "topic")
+	text := count(len(v.messages)-v.noisy(), "message") + " on " + count(len(topics), "topic")
+	if n := v.noisy(); n > 0 {
+		text += ", " + number(n) + " noise"
+	}
+	return text
 }
 
 func (v *kafkaView) render(m *Model, r rect) []string {
@@ -1112,7 +1176,8 @@ func (v *kafkaView) render(m *Model, r rect) []string {
 	}
 	v.showing.Store(m.detailFrom == panelServices && m.serviceList.selected(m) == v.entry &&
 		(v.activeID() == "topics" || v.activeID() == "groups"))
-	meta := style.Muted.Render(v.summary()) + modeChips(topic, windowLabel)
+	meta := style.Muted.Render(v.summary()) +
+		modeChips(topic, windowLabel, map[bool]string{true: "with noise"}[v.showNoise])
 	out, pane := v.tabLine(m, r, meta, func() { m.setFocus(v.main()) })
 	switch v.activeID() {
 	case "log":
@@ -1133,6 +1198,11 @@ func (v *kafkaView) levels(m *Model, focus any) []level {
 			v.filtered(m)
 			return nil
 		}).when(func() bool { return v.topic != "" || v.window != nil }),
+		bind("n", "Noise", func() tea.Cmd {
+			v.showNoise = !v.showNoise
+			v.refillMessages()
+			return nil
+		}).hidden().when(func() bool { return v.activeID() == "messages" }),
 		bind("h", map[bool]string{false: "Headers", true: "Value"}[v.showHeaders], func() tea.Cmd {
 			v.showHeaders = !v.showHeaders
 			return nil
@@ -1198,7 +1268,7 @@ func (v *kafkaView) append(m *Model, lines []*logformat.Line) {
 func (v *kafkaView) messagesBetween(w *window) []kafka.Message {
 	var found []kafka.Message
 	for _, message := range v.messages {
-		if w.holds(message.At) {
+		if w.holds(message.At) && !v.isNoise(message) {
 			found = append(found, message)
 		}
 	}
@@ -1292,19 +1362,21 @@ func indent(text, by string) string {
 // dbView is a database's queries, as it records them itself (see package databases), and its log.
 type dbView struct {
 	tabbedView
-	entry     *svcEntry
-	client    databases.QueryLog
-	info      func() string
-	queries   []databases.Query
-	window    *window
-	showNoise bool
-	chatter   int // how many of the queries are session chatter
-	byKey     map[string]databases.Query
-	table     *table
-	detail    *textbox
-	log       *logView
-	kind      string // mariadb, mysql, postgres, mongodb or redis
-	showRaw   bool   // a SQL query as the database logged it, rather than laid out and coloured
+	entry      *svcEntry
+	client     databases.QueryLog
+	info       func() string
+	queries    []databases.Query
+	window     *window
+	showNoise  bool
+	noise      noiseMarks[queryID]
+	noiseCount noiseCount
+	trims      int
+	byKey      map[string]databases.Query
+	table      *table
+	detail     *textbox
+	log        *logView
+	kind       string // mariadb, mysql, postgres, mongodb or redis
+	showRaw    bool   // a SQL query as the database logged it, rather than laid out and coloured
 }
 
 func newDBView(m *Model, entry *svcEntry, info func() string) *dbView {
@@ -1345,19 +1417,9 @@ func (v *dbView) noun() (string, string) {
 
 func (v *dbView) received(m *Model, batch []databases.Query) {
 	v.queries = append(v.queries, batch...)
-	for _, q := range batch {
-		if q.Noise() {
-			v.chatter++
-		}
-	}
 	if len(v.queries) > maxQueries {
 		v.queries = append([]databases.Query(nil), v.queries[len(v.queries)-maxQueries:]...)
-		v.chatter = 0
-		for _, q := range v.queries {
-			if q.Noise() {
-				v.chatter++
-			}
-		}
+		v.trims++
 		v.fillQueries()
 	} else {
 		v.addRows(batch)
@@ -1365,10 +1427,29 @@ func (v *dbView) received(m *Model, batch []databases.Query) {
 }
 
 func (v *dbView) shown(q databases.Query) bool {
-	if q.Noise() && !v.showNoise {
+	if !v.showNoise && v.isNoise(q) {
 		return false
 	}
 	return v.window.holds(q.At)
+}
+
+// isNoise is whether a query is noise: session chatter, which testdash knows, or by a rule.
+func (v *dbView) isNoise(q databases.Query) bool {
+	return q.Noise() || v.noise.is(queryID{q.At.UnixNano(), q.Connection, q.Text},
+		func() string { return queryNoiseText(q) })
+}
+
+// noisy is how many of the queries are noise.
+func (v *dbView) noisy() int {
+	return v.noiseCount.get(len(v.queries), v.trims, v.noise.generation(), func() int {
+		n := 0
+		for _, q := range v.queries {
+			if v.isNoise(q) {
+				n++
+			}
+		}
+		return n
+	})
 }
 
 func (v *dbView) fillQueries() {
@@ -1394,7 +1475,7 @@ func (v *dbView) addRows(queries []databases.Query) {
 			text = cleanText(strings.TrimPrefix(strings.TrimPrefix(q.Text, q.Args[0]), " "))
 		}
 		rowStyle := style.Plain
-		if q.Noise() {
+		if v.isNoise(q) {
 			rowStyle = style.Dim
 		}
 		v.table.addRow(key, rowStyle.Render(clock(q.At)), style.Dim.Render(q.Connection), rowStyle.Render(cleanText(q.Kind)),
@@ -1441,9 +1522,9 @@ func (v *dbView) summary() string {
 		return "cannot read " + many + ": " + cleanText(v.client.Error())
 	}
 	one, many := v.noun()
-	text := count(len(v.queries)-v.chatter, one, many)
-	if v.chatter > 0 {
-		text += ", " + number(v.chatter) + " session chatter"
+	text := count(len(v.queries)-v.noisy(), one, many)
+	if n := v.noisy(); n > 0 {
+		text += ", " + number(n) + " noise"
 	}
 	return text
 }
@@ -1454,7 +1535,7 @@ func (v *dbView) render(m *Model, r rect) []string {
 		windowLabel = v.window.label
 	}
 	if v.showNoise {
-		noise = "with session chatter"
+		noise = "with noise"
 	}
 	meta := style.Muted.Render(v.summary()) + modeChips(windowLabel, noise)
 	out, pane := v.tabLine(m, r, meta, func() { m.setFocus(v.main()) })
@@ -1483,11 +1564,11 @@ func (v *dbView) levels(m *Model, focus any) []level {
 	onTab := func() { m.setFocus(v.main()) }
 	one, many := v.noun()
 	own := level{bindings: append(tabBindings(&v.tabbedView, onTab),
-		bind("n", "Session chatter", func() tea.Cmd {
+		bind("n", "Noise", func() tea.Cmd {
 			v.showNoise = !v.showNoise
 			v.fillQueries()
 			return nil
-		}).when(func() bool { return v.kind != "mongodb" }),
+		}),
 		bind("esc", "All "+many, func() tea.Cmd { v.setWindow(m, nil); return nil }).
 			when(func() bool { return v.window != nil }),
 		bind("v", map[bool]string{false: "Raw", true: "Formatted"}[v.showRaw], func() tea.Cmd {
@@ -1518,7 +1599,7 @@ func (v *dbView) setWindow(m *Model, w *window) {
 }
 
 func (v *dbView) clear() {
-	v.queries, v.byKey, v.chatter = nil, map[string]databases.Query{}, 0
+	v.queries, v.byKey = nil, map[string]databases.Query{}
 	v.fillQueries()
 	v.detail.set("", "")
 	v.log.clear()
@@ -1531,7 +1612,7 @@ func (v *dbView) append(m *Model, lines []*logformat.Line) {
 func (v *dbView) queriesBetween(w *window) []databases.Query {
 	var found []databases.Query
 	for _, q := range v.queries {
-		if w.holds(q.At) && !q.Noise() {
+		if w.holds(q.At) && !v.isNoise(q) {
 			found = append(found, q)
 		}
 	}

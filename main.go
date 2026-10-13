@@ -27,6 +27,7 @@ import (
 	"github.com/charmbracelet/x/term"
 
 	"github.com/steven509/testdash/internal/catalog"
+	"github.com/steven509/testdash/internal/noise"
 	"github.com/steven509/testdash/internal/settings"
 	"github.com/steven509/testdash/internal/ui"
 )
@@ -70,6 +71,7 @@ type config struct {
 	Command        any           `json:"command"`
 	ShowTestOutput bool          `json:"showTestOutput"`
 	Logs           []ui.ExtraLog `json:"logs"`
+	Noise          []noise.Rule  `json:"noise"`
 }
 
 func main() {
@@ -148,6 +150,8 @@ func run(argv []string) int {
 		IncludeAllContainers: opts.allContainers || prefs.AllContainers,
 		RunDir:               runDir,
 		ExtraLogs:            cfg.Logs,
+		Noise:                cfg.Noise,
+		ConfigPath:           configFor(configPath, buildRoot, workdir),
 		Keycast:              keycastMode(os.Getenv("TESTDASH_KEYCAST")),
 	}
 
@@ -293,4 +297,15 @@ func keycastMode(value string) string {
 		return value
 	}
 	return "all"
+}
+
+// configFor is where a build's noise rules are saved: its .testdash.json, or one to make at its root.
+func configFor(found, buildRoot, workdir string) string {
+	switch {
+	case found != "":
+		return found
+	case buildRoot != "":
+		return filepath.Join(buildRoot, configName)
+	}
+	return filepath.Join(workdir, configName)
 }

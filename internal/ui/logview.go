@@ -31,6 +31,8 @@ type logView struct {
 	info       func() string
 	pattern    *regexp.Regexp
 	errorsOnly bool
+	noise      noiseMarks[*logformat.Line]
+	showNoise  bool
 	window     *window
 	styleShown int
 	rows       []string
@@ -78,7 +80,19 @@ func (v *logView) shown(line *logformat.Line) bool {
 	if v.errorsOnly && !line.IsProblem() {
 		return false
 	}
+	if !v.showNoise && v.isNoise(line) {
+		return false
+	}
 	return v.pattern == nil || v.pattern.MatchString(line.Text)
+}
+
+func (v *logView) isNoise(line *logformat.Line) bool {
+	return v.noise.is(line, func() string { return lineNoiseText(line) })
+}
+
+func (v *logView) forgetNoise(m *Model) {
+	v.noise.forget()
+	v.rerender(m)
 }
 
 func (v *logView) addRows(m *Model, lines []*logformat.Line) {
@@ -144,6 +158,9 @@ func (v *logView) modeNames(m *Model) []string {
 	}
 	if v.errorsOnly {
 		modes = append(modes, "errors only")
+	}
+	if v.showNoise {
+		modes = append(modes, "with noise")
 	}
 	if !m.logSimple {
 		modes = append(modes, "full lines")
@@ -277,6 +294,11 @@ func (v *logView) levels(m *Model, focus any) []level {
 			v.rerender(m)
 			return nil
 		}),
+		bind("n", "Noise", func() tea.Cmd {
+			v.showNoise = !v.showNoise
+			v.rerender(m)
+			return nil
+		}).hidden(),
 		bind("f", "Follow", func() tea.Cmd {
 			v.follow = !v.follow
 			if !v.follow {

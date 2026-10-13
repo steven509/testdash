@@ -25,6 +25,7 @@ import (
 	"github.com/steven509/testdash/internal/gradle"
 	"github.com/steven509/testdash/internal/history"
 	"github.com/steven509/testdash/internal/logformat"
+	"github.com/steven509/testdash/internal/noise"
 	"github.com/steven509/testdash/internal/progress"
 	"github.com/steven509/testdash/internal/runner"
 	"github.com/steven509/testdash/internal/services"
@@ -55,8 +56,10 @@ type Options struct {
 	ShowTestOutput       bool
 	IncludeAllContainers bool
 	RunDir               string
-	ExtraLogs            []ExtraLog // from .testdash.json
-	Keycast              string     // shows the keys pressed, for recordings and demos: all, or only shortcuts
+	ExtraLogs            []ExtraLog   // from .testdash.json
+	Noise                []noise.Rule // the build's noise rules, from .testdash.json
+	ConfigPath           string       // the build's .testdash.json, where its noise rules are saved
+	Keycast              string       // shows the keys pressed, for recordings and demos: all, or only shortcuts
 }
 
 // ExtraLog is a log from .testdash.json: a file, or a command's output.
@@ -151,35 +154,37 @@ type Model struct {
 	fullCommand   bool   // the dashboard shows the run's whole command, not one line of it
 	activityText  string // the dashboard's activity, drawn when the key changes
 
-	width, height int
-	spinner       spinner.Model
-	spinning      bool
-	tree          *testTree
-	serviceList   *serviceList
-	inspector     *inspector
-	outputView    *logView
-	focus         any
-	detailFrom    panel // the panel whose selection the detail shows
-	zoomed        bool
-	away          bool // the terminal is in the background, as it reports
-	history       *history.Store
-	runs          []history.Run // the build's runs, newest first
-	recorded      []history.Run // the runs since testdash started
-	historyIndex  history.Index
-	flaky         map[string]bool // the tests the history says are flaky
-	runCommit     string          // the commit the run's code was at, and whether the working tree had changes
-	runDirty      bool
-	runFilters    []string
-	stopRequested bool
-	popup         popup
-	toasts        []*toast
-	toastSeq      int
-	keycast       keycast
-	keyLabel      string // what the last key did, as its binding names it
-	keyShortcut   bool   // whether the last key ran a binding, rather than moving, typing or answering a dialog
-	zones         []zone
-	dirty         bool
-	frame         string
+	width, height   int
+	spinner         spinner.Model
+	spinning        bool
+	tree            *testTree
+	serviceList     *serviceList
+	inspector       *inspector
+	outputView      *logView
+	focus           any
+	detailFrom      panel // the panel whose selection the detail shows
+	zoomed          bool
+	away            bool // the terminal is in the background, as it reports
+	history         *history.Store
+	runs            []history.Run // the build's runs, newest first
+	recorded        []history.Run // the runs since testdash started
+	historyIndex    history.Index
+	flaky           map[string]bool // the tests the history says are flaky
+	noise           *noise.Filter
+	noiseGeneration int
+	runCommit       string // the commit the run's code was at, and whether the working tree had changes
+	runDirty        bool
+	runFilters      []string
+	stopRequested   bool
+	popup           popup
+	toasts          []*toast
+	toastSeq        int
+	keycast         keycast
+	keyLabel        string // what the last key did, as its binding names it
+	keyShortcut     bool   // whether the last key ran a binding, rather than moving, typing or answering a dialog
+	zones           []zone
+	dirty           bool
+	frame           string
 }
 
 func New(ctx context.Context, opts Options, prefs settings.Settings) *Model {
@@ -211,9 +216,11 @@ func New(ctx context.Context, opts Options, prefs settings.Settings) *Model {
 	m.serviceList = &serviceList{}
 	m.inspector = newInspector()
 	m.outputView = newLogView(func() []*logformat.Line { return m.output.all() }, m.outputInfo)
+	m.outputView.noise.rules, m.outputView.noise.gen = m.noiseFor("gradle"), func() int { return m.noiseGeneration }
 	m.outputView.wrap = m.logWrap
 	m.focus = m.tree
 	m.chooseTask(m.opts.Task, true)
+	m.setNoise()
 	return m
 }
 
@@ -1109,6 +1116,7 @@ func (m *Model) serviceAdded(service *services.Service) {
 		log.wrap = m.logWrap
 		entry.view = log
 	}
+	m.followNoise(entry)
 	m.svcs = append(m.svcs, entry)
 	m.version++
 }

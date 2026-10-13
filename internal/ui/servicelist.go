@@ -189,11 +189,11 @@ func serviceStats(entry *svcEntry) string {
 	case *wiremockView:
 		unmatched := 0
 		for _, e := range v.events {
-			if !e.Matched {
+			if !e.Matched && !v.isNoise(e) {
 				unmatched++
 			}
 		}
-		text := style.Dim.Render(compact(len(v.events)) + " req")
+		text := style.Dim.Render(compact(len(v.events)-v.noisy()) + " req")
 		if unmatched > 0 {
 			text += style.Red.Render(" " + ic.failed + " " + compact(unmatched))
 		}
@@ -202,7 +202,7 @@ func serviceStats(entry *svcEntry) string {
 		if v.client.Error() != "" {
 			return style.Red.Render(ic.warning)
 		}
-		return style.Dim.Render(compact(len(v.messages)) + " msg")
+		return style.Dim.Render(compact(len(v.messages)-v.noisy()) + " msg")
 	case *dbView:
 		if v.client != nil && v.client.Error() != "" {
 			return style.Red.Render(ic.warning)
@@ -211,7 +211,7 @@ func serviceStats(entry *svcEntry) string {
 		if v.kind == "redis" {
 			unit = " cmd"
 		}
-		return style.Dim.Render(compact(len(v.queries)-v.chatter) + unit)
+		return style.Dim.Render(compact(len(v.queries)-v.noisy()) + unit)
 	}
 	if entry.problems > 0 {
 		return style.Yellow.Render(ic.warning + " " + compact(entry.problems))

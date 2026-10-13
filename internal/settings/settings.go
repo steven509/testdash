@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+
+	"github.com/steven509/testdash/internal/noise"
 )
 
 type Settings struct {
@@ -27,6 +29,8 @@ type Settings struct {
 	// HiddenServices are the kinds of service testdash leaves alone, such as redis: not listed, not followed, and
 	// nothing switched on in them.
 	HiddenServices []string `json:"hiddenServices,omitempty"`
+	// Noise are the noise rules for every build.
+	Noise []noise.Rule `json:"noise,omitempty"`
 }
 
 func Defaults() Settings {
