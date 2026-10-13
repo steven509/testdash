@@ -15,13 +15,16 @@ any terminal, and shows a run's progress in the terminal's tab or taskbar where 
 
 ## Quick start
 
-With Go 1.26 or later, Docker, and a JDK for your Gradle build:
+With [Go](https://go.dev/doc/install) 1.26 or later, Docker, and a JDK for your Gradle build:
 
 ```sh
-go install github.com/steven509/testdash@latest   # into $(go env GOPATH)/bin, which should be on your PATH
+go install github.com/steven509/testdash@latest
 cd your-gradle-repo
 testdash
 ```
+
+`go install` puts it in `$(go env GOPATH)/bin`; if `testdash` is not found, add that to your PATH, as
+[Go's tutorial shows](https://go.dev/doc/tutorial/compile-install).
 
 Pick tests with `space` and run them with `r` (with none picked, `r` runs them all), or press `enter` on a test
 or class to run just it. `tab` moves to the services and the details, and `?` lists every key. To try it on
