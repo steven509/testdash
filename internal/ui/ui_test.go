@@ -450,6 +450,16 @@ func TestCopyQueriesAndPayloads(t *testing.T) {
 	}
 }
 
+func TestHighlightJSON(t *testing.T) {
+	got := highlightJSON(`{"id": 1, "ok": true, "name": "x"}`)
+	for _, want := range []string{style.Cyan.Render(`"id"`), style.Yellow.Render("1"),
+		style.AccentText.Render("true"), style.Green.Render(`"x"`)} {
+		if !strings.Contains(got, want) {
+			t.Errorf("JSON has its colours; %q is missing from %q", want, got)
+		}
+	}
+}
+
 func TestKafkaMessagesStayInTimeOrder(t *testing.T) {
 	m := testModel(t)
 	service := services.NewService("kafka", "kafka", "apache/kafka:3.8.0")

@@ -54,8 +54,8 @@ queries) and a dot for whether it runs.
   payload.
 - *Gradle or a service*: its log, or WireMock's requests (with the closest stub for each unmatched one), stubs
   and log; Kafka's messages (each with its value and headers), topics, consumer group lag and log; a database's
-  queries and log. A SQL query shows laid out over lines and coloured, or as the database logged it (`v`), and
-  `c` copies the query or the message's payload.
+  queries and log. A SQL query shows laid out over lines and coloured, or as the database logged it (`v`); JSON
+  is coloured wherever it shows. `c` copies the query or the message's payload.
 
 <p align="center">
   <img src="docs/images/failure.png" width="880"

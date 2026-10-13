@@ -651,7 +651,7 @@ func (v *wiremockView) fillStubs() {
 		key := "s:" + stub.String("id")
 		v.stubTable.addRow(key, cleanText(name), cleanText(method), cleanText(wiremock.StubURL(request)),
 			response.String("status"), stub.String("priority"))
-		v.stubDetails[key] = style.Cyan.Render(cleanBlock(jsonx.Indent(stub.Marshal())))
+		v.stubDetails[key] = highlightJSON(cleanBlock(jsonx.Indent(stub.Marshal())))
 	}
 	v.stubTable.cursor = cursor
 }
@@ -682,7 +682,7 @@ func describeRequest(e wiremock.ServeEvent, near *wiremock.NearMiss) string {
 		}
 	}
 	if body := request.String("body"); body != "" {
-		b.WriteString("\n" + cleanBlock(jsonx.Pretty(body)) + "\n")
+		b.WriteString("\n" + prettyBody(body) + "\n")
 	}
 	responseRaw := raw.Get("response")
 	if !jsonx.Truthy(responseRaw) {
@@ -691,7 +691,7 @@ func describeRequest(e wiremock.ServeEvent, near *wiremock.NearMiss) string {
 	if response, ok := jsonx.ParseObject(responseRaw); ok && len(response.Keys) > 0 {
 		b.WriteString("\n" + style.Bold.Render("→ "+response.String("status")) + "\n")
 		if body := response.String("body"); body != "" {
-			b.WriteString(cleanBlock(jsonx.Pretty(body)) + "\n")
+			b.WriteString(prettyBody(body) + "\n")
 		}
 	}
 	stub := raw.Get("stubMapping")
@@ -700,12 +700,12 @@ func describeRequest(e wiremock.ServeEvent, near *wiremock.NearMiss) string {
 	switch {
 	case notMatched && near != nil:
 		b.WriteString("\n" + style.Red.Render("No stub matched. Closest: "+cleanText(wiremock.StubLabel(near.StubMapping))) + "\n")
-		b.WriteString(style.Cyan.Render(cleanBlock(jsonx.Indent(near.StubMapping))) + "\n")
+		b.WriteString(highlightJSON(cleanBlock(jsonx.Indent(near.StubMapping))) + "\n")
 	case notMatched: // WireMock records its built-in 404 as the "stub" here
 		b.WriteString("\n" + style.Red.Render("No stub matched, and none is close. The Stubs tab lists them all.") + "\n")
 	case jsonx.Truthy(stub):
 		b.WriteString("\n" + style.Bold.Render("stub "+cleanText(wiremock.StubLabel(stub))) + "\n")
-		b.WriteString(style.Cyan.Render(cleanBlock(jsonx.Indent(stub))) + "\n")
+		b.WriteString(highlightJSON(cleanBlock(jsonx.Indent(stub))) + "\n")
 	}
 	return styleEachLine(b.String())
 }
@@ -1175,7 +1175,18 @@ func messageValue(message kafka.Message) string {
 	if message.Value == nil {
 		return style.Cyan.Render("null")
 	}
-	return styleLines(cleanBlock(jsonx.Pretty(*message.Value)), style.Cyan)
+	if jsonValue(*message.Value) {
+		return highlightJSON(cleanBlock(jsonx.Pretty(*message.Value)))
+	}
+	return styleLines(cleanBlock(*message.Value), style.Cyan)
+}
+
+// prettyBody is a request's or response's body, indented and coloured when it is JSON.
+func prettyBody(body string) string {
+	if jsonValue(body) {
+		return highlightJSON(cleanBlock(jsonx.Pretty(body)))
+	}
+	return cleanBlock(body)
 }
 
 // messageHeaders lists a message's headers, names lined up, a JSON value indented below its name.
@@ -1194,7 +1205,7 @@ func messageHeaders(message kafka.Message, width int) string {
 		case header.Value == nil:
 			b.WriteString(name + "  " + style.Dim.Render("null") + "\n")
 		case jsonValue(*header.Value):
-			b.WriteString(name + "\n" + styleLines(indent(cleanBlock(jsonx.Pretty(*header.Value)), "  "), style.Cyan) + "\n")
+			b.WriteString(name + "\n" + indent(highlightJSON(cleanBlock(jsonx.Pretty(*header.Value))), "  ") + "\n")
 		case nameWidth+2+len([]rune(cleanText(*header.Value))) > width: // too long to sit beside its name
 			value := cleanText(*header.Value)
 			wrapped := strings.Join(wrapLines(value, width-2), "\n")
@@ -1475,7 +1486,7 @@ func describeQuery(q databases.Query, dialect string) string {
 	if errMsg := q.Detail.String("errMsg"); errMsg != "" {
 		b.WriteString(style.Red.Render(cleanText(errMsg)) + "\n")
 	}
-	b.WriteString("\n" + styleLines(cleanBlock(jsonx.Indent([]byte(q.Text))), style.Cyan))
+	b.WriteString("\n" + highlightJSON(cleanBlock(jsonx.Indent([]byte(q.Text)))))
 	return b.String()
 }
 
