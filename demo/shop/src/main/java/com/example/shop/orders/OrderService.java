@@ -4,6 +4,7 @@ import com.example.shop.api.ApiException;
 import com.example.shop.audit.AuditLog;
 import com.example.shop.billing.InvoiceRepository;
 import com.example.shop.catalog.Product;
+import com.example.shop.catalog.ProductCache;
 import com.example.shop.catalog.ProductRepository;
 import com.example.shop.events.EventPublisher;
 import com.example.shop.logging.Log;
@@ -29,6 +30,7 @@ public final class OrderService {
             "WELCOME5", new BigDecimal("0.05"));
 
     private final ProductRepository products;
+    private final ProductCache cache;
     private final OrderRepository orders;
     private final InvoiceRepository invoices;
     private final ShippingClient shipping;
@@ -36,9 +38,11 @@ public final class OrderService {
     private final EventPublisher events;
     private final AuditLog audit;
 
-    public OrderService(ProductRepository products, OrderRepository orders, InvoiceRepository invoices,
-            ShippingClient shipping, PaymentClient payments, EventPublisher events, AuditLog audit) {
+    public OrderService(ProductRepository products, ProductCache cache, OrderRepository orders,
+            InvoiceRepository invoices, ShippingClient shipping, PaymentClient payments, EventPublisher events,
+            AuditLog audit) {
         this.products = products;
+        this.cache = cache;
         this.orders = orders;
         this.invoices = invoices;
         this.shipping = shipping;
@@ -68,6 +72,7 @@ public final class OrderService {
                     log.warn("Not enough stock of %s: %d wanted, %d left", sku, qty, product.stock());
                     throw new ApiException(409, "out_of_stock", sku + " is out of stock");
                 }
+                cache.evict(sku);
                 reserved.add(new Order.Line(sku, qty, product.price()));
                 subtotal = subtotal.add(product.price().multiply(BigDecimal.valueOf(qty)));
                 weight = weight.add(product.weightKg().multiply(BigDecimal.valueOf(qty)));

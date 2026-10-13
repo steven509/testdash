@@ -59,6 +59,19 @@ final class Shop {
         }
     }
 
+    /** Whether the shop served a GET from its cache: HIT or MISS. */
+    static String cacheStatus(String path) {
+        try {
+            return http.send(HttpRequest.newBuilder(URI.create(URL + path)).GET().build(),
+                    HttpResponse.BodyHandlers.discarding()).headers().firstValue("X-Cache").orElse("");
+        } catch (IOException e) {
+            throw new UncheckedIOException(e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException(e);
+        }
+    }
+
     static Response placeOrder(ObjectNode order) {
         return post("/orders", order);
     }

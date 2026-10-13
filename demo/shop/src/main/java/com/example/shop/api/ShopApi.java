@@ -1,7 +1,9 @@
 package com.example.shop.api;
 
 import com.example.shop.billing.InvoiceRepository;
+import com.example.shop.carts.CartService;
 import com.example.shop.catalog.Product;
+import com.example.shop.catalog.ProductCache;
 import com.example.shop.catalog.ProductRepository;
 import com.example.shop.customers.CustomerService;
 import com.example.shop.events.EventPublisher;
@@ -28,18 +30,23 @@ import java.util.concurrent.atomic.AtomicInteger;
 public final class ShopApi {
     private static final Log log = Log.get(ShopApi.class);
     private static final ObjectMapper json = new ObjectMapper();
+    private static final ThreadLocal<String> cacheStatus = new ThreadLocal<>(); // X-Cache: HIT or MISS
 
     private final ProductRepository products;
+    private final ProductCache cache;
     private final OrderService orders;
+    private final CartService carts;
     private final InvoiceRepository invoices;
     private final CustomerService customers;
     private final ShippingClient shipping;
     private final EventPublisher events;
 
-    public ShopApi(ProductRepository products, OrderService orders, InvoiceRepository invoices, CustomerService customers,
-            ShippingClient shipping, EventPublisher events) {
+    public ShopApi(ProductRepository products, ProductCache cache, OrderService orders, CartService carts,
+            InvoiceRepository invoices, CustomerService customers, ShippingClient shipping, EventPublisher events) {
         this.products = products;
+        this.cache = cache;
         this.orders = orders;
+        this.carts = carts;
         this.invoices = invoices;
         this.customers = customers;
         this.shipping = shipping;
@@ -59,6 +66,7 @@ public final class ShopApi {
         String method = exchange.getRequestMethod();
         String path = exchange.getRequestURI().getPath();
         String traceId = Log.startTrace();
+        cacheStatus.remove();
         int status;
         JsonNode body;
         try {
@@ -78,6 +86,9 @@ public final class ShopApi {
         byte[] reply = body.toString().getBytes(StandardCharsets.UTF_8);
         exchange.getResponseHeaders().add("Content-Type", "application/json");
         exchange.getResponseHeaders().add("X-Trace-Id", traceId);
+        if (cacheStatus.get() != null) {
+            exchange.getResponseHeaders().add("X-Cache", cacheStatus.get());
+        }
         exchange.sendResponseHeaders(status, reply.length);
         exchange.getResponseBody().write(reply);
         exchange.close();
@@ -89,11 +100,13 @@ public final class ShopApi {
         return switch (route) {
             case "GET /actuator/{}" -> json.createObjectNode().put("status", "UP");
             case "GET /products" -> products(products.list(query.get("category")));
-            case "GET /products/{}" -> product(products.find(parts[1])
-                    .orElseThrow(() -> new ApiException(404, "unknown_product", "There is no product " + parts[1])));
+            case "GET /products/{}" -> cachedProduct(parts[1]);
             case "POST /orders" -> orders.place(request, traceId);
             case "GET /orders/{}" -> orders.get(Long.parseLong(parts[1]));
             case "POST /orders/{}/cancel" -> orders.cancel(Long.parseLong(parts[1]), traceId);
+            case "POST /carts/{}/items" -> carts.add(parts[1], request);
+            case "GET /carts/{}" -> carts.view(parts[1]);
+            case "POST /carts/{}/checkout" -> carts.checkout(parts[1], request, traceId);
             case "GET /invoices/{}" -> invoices.find(Long.parseLong(parts[1]))
                     .orElseThrow(() -> new ApiException(404, "unknown_invoice", "There is no invoice for order " + parts[1]));
             case "POST /customers" -> customers.register(request, traceId);
@@ -107,12 +120,20 @@ public final class ShopApi {
         Product before = products.find(sku)
                 .orElseThrow(() -> new ApiException(404, "unknown_product", "There is no product " + sku));
         products.restock(sku, qty);
+        cache.evict(sku);
         events.publish("inventory.events", sku, "StockAdjusted", traceId, json.createObjectNode()
                 .put("sku", sku)
                 .put("change", qty)
                 .put("stock", before.stock() + qty));
         log.info("Restocked %s: %d -> %d", sku, before.stock(), before.stock() + qty);
         return product(products.find(sku).orElseThrow());
+    }
+
+    private JsonNode cachedProduct(String sku) {
+        ProductCache.Lookup lookup = cache.find(sku);
+        cacheStatus.set(lookup.cached() ? "HIT" : "MISS");
+        return product(lookup.product()
+                .orElseThrow(() -> new ApiException(404, "unknown_product", "There is no product " + sku)));
     }
 
     private JsonNode quote(Map<String, String> query, String traceId) {

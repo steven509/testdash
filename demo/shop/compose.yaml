@@ -15,6 +15,8 @@ services:
       BILLING_DB_PASSWORD: shop
       KAFKA_BOOTSTRAP: kafka:9092
       MONGO_URI: mongodb://mongodb:27017
+      REDIS_HOST: redis
+      REDIS_PASSWORD: shop
       PAYMENTS_URL: http://wiremock:8080
       SHIPPING_URL: http://wiremock:8080
     ports: ["18080:8080"]
@@ -27,6 +29,7 @@ services:
     depends_on:
       mariadb: { condition: service_healthy }
       postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
       kafka: { condition: service_healthy }
       mongodb: { condition: service_healthy }
       wiremock: { condition: service_healthy }
@@ -95,6 +98,17 @@ services:
     ports: ["15432:5432"]
     healthcheck:
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "shop", "-d", "billing"]
+      interval: 30s
+      start_period: 60s
+      start_interval: 1s
+      retries: 60
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--requirepass", "shop"]
+    ports: ["16379:6379"]
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a shop --no-auth-warning ping | grep -q PONG"]
       interval: 30s
       start_period: 60s
       start_interval: 1s
