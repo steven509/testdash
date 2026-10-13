@@ -273,13 +273,17 @@ func (v *liveView) levels(m *Model, focus any, tabs []binding) []level {
 // activityChart is the activity at full size: each source's counts over the run as a bar chart, as tall as the
 // height leaves room for.
 func (m *Model) activityChart(width, height int) string {
-	grid := m.activityGrid(activityBuckets(width), time.Now())
+	grid := m.activityGrid(activityChartColumns(width), time.Now())
 	key := fmt.Sprintf("%d/%d/%d/%s/%s", m.version, width, height, grid.key(), ic.output)
 	if m.activityChartKey == key {
 		return m.activityChartText
 	}
 	rows := m.activityRows(grid)
-	tall := max(1, min(8, (height-3)/max(1, len(rows))-1))
+	each, gap := (height-2)/max(1, len(rows)), false // each source's lines, under the heading and over the axis
+	tall := max(1, each)
+	if each >= 3 {
+		tall, gap = min(8, each-1), true
+	}
 	var b strings.Builder
 	b.WriteString(section("Activity", width, grid.about()) + "\n")
 	for _, row := range rows {
@@ -295,15 +299,21 @@ func (m *Model) activityChart(width, height int) string {
 			if i == tall-1 {
 				heading, side = row.heading(), append([]string{row.total}, side...)
 			}
-			b.WriteString(heading + " " + line + " " + style.Dim.Render(strings.Join(side, " · ")) + "\n")
+			b.WriteString(heading + " " + line + " " + style.Dim.Render(fit(strings.Join(side, " · "), activitySideWidth, true)) + "\n")
 		}
-		if tall > 1 {
+		if gap {
 			b.WriteString("\n")
 		}
 	}
 	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + grid.axis() + "\n")
 	m.activityChartKey, m.activityChartText = key, b.String()
 	return m.activityChartText
+}
+
+const activitySideWidth = 30 // beside the activity at full size: the totals, and the peak where a chart is one line
+
+func activityChartColumns(width int) int {
+	return max(10, width-activityLabelWidth-activitySideWidth-2)
 }
 
 // rate is how many in a while as a rate: a second, or below one a second, a minute.

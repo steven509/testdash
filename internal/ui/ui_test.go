@@ -1714,7 +1714,7 @@ func TestActivityPeaksAsRates(t *testing.T) {
 	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
 	m.inspector.overview.setActive("activity")
 	screen(m)
-	grid := m.activityGrid(activityBuckets(m.inspector.card.wrapWidth), time.Now())
+	grid := m.activityGrid(activityChartColumns(m.inspector.card.wrapWidth), time.Now())
 	if s := screen(m); !strings.Contains(s, "peak "+rate(50, grid.step)) || !strings.Contains(s, "51 lines") {
 		t.Errorf("each chart says what its top stands for:\n%s", s)
 	}
@@ -1790,3 +1790,4 @@ func TestCucumberFeatures(t *testing.T) {
 		t.Errorf("a scenario runs through its suite, with Cucumber's filter: %q", m.runFilters)
 	}
 }
+
