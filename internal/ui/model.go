@@ -247,6 +247,12 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, cmd
 	case notifyMsg:
 		m.notify(msg.text, msg.title, msg.severity)
+	case historyMsg:
+		m.historyLoaded(msg)
+	case commitMsg:
+		if msg.started.Equal(m.runStarted) {
+			m.runCommit, m.runDirty = msg.commit, msg.dirty
+		}
 	case portHolderMsg:
 		m.explainPort(msg)
 	case services.Added:

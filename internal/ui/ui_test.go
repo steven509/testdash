@@ -14,6 +14,7 @@ import (
 
 	"github.com/steven509/testdash/internal/catalog"
 	"github.com/steven509/testdash/internal/databases"
+	"github.com/steven509/testdash/internal/history"
 	"github.com/steven509/testdash/internal/jsonx"
 	"github.com/steven509/testdash/internal/kafka"
 	"github.com/steven509/testdash/internal/logformat"
@@ -945,6 +946,80 @@ func TestKeycastOfShortcutsLeavesOutMovingAndTyping(t *testing.T) {
 	}
 	if got := strings.Join(shown, ", "); got != "/ Filter, esc Clear, ^s Settings" {
 		t.Errorf("only the keys that did something by name show: %s", got)
+	}
+}
+
+// runAll runs a command and the commands it batches, and returns the messages they gave.
+func runAll(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		var msgs []tea.Msg
+		for _, c := range batch {
+			msgs = append(msgs, runAll(c)...)
+		}
+		return msgs
+	}
+	return []tea.Msg{msg}
+}
+
+// finishRun plays a run of the test model's tests to its end: t1 passes, t3 fails, t4 is skipped.
+func finishRun(t *testing.T, m *Model, at time.Time) tea.Cmd {
+	t.Helper()
+	m.runStarted, m.runFinished = at, time.Time{}
+	m.listening = true
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{"t1": true, "t3": true, "t4": true}
+	events := fmt.Sprintf(`{"event":"plan","at":1,"entries":[`+
+		`{"id":"t1","parent":"c1","kind":"test","className":"com.a.FooTest","methodName":"one","name":"one"},`+
+		`{"id":"t3","parent":"n1","kind":"test","className":"com.a.FooTest$Inner","methodName":"three","name":"three"},`+
+		`{"id":"t4","parent":"c2","kind":"test","className":"com.a.BarTest","methodName":"sign_up","name":"sign up"}]}
+{"event":"started","at":%[1]d,"id":"t1"}
+{"event":"finished","at":%[2]d,"id":"t1","status":"SUCCESSFUL"}
+{"event":"started","at":%[1]d,"id":"t3"}
+{"event":"finished","at":%[2]d,"id":"t3","status":"FAILED","message":"boom\nmore"}
+{"event":"skipped","at":%[2]d,"id":"t4"}
+`, at.UnixMilli(), at.UnixMilli()+250)
+	if err := os.WriteFile(filepath.Join(m.opts.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tickMsg{})
+	_, cmd := m.Update(runDoneMsg{code: 1})
+	return cmd
+}
+
+func TestARunIsRecorded(t *testing.T) {
+	m := testModel(t)
+	cache := t.TempDir()
+	m.history = history.Open(cache, "/repo")
+	m.Update(commitMsg{started: time.UnixMilli(1000), commit: "abc123"}) // an earlier run's: ignored
+	started := time.Now().Add(-time.Second)
+	runAll(finishRun(t, m, started))
+	if len(m.runs) != 1 {
+		t.Fatalf("the run is in the history: %d", len(m.runs))
+	}
+	run := m.runs[0]
+	var got []string
+	for _, result := range run.Tests {
+		got = append(got, result.ID+" "+result.Status+" "+result.Failure)
+	}
+	if strings.Join(got, ", ") != "t1 passed , t3 failed boom, t4 skipped " || run.Task != ":test" || run.Exit != 1 ||
+		run.Tests[0].Took != 250 || run.Commit != "" {
+		t.Errorf("what ran and how: %+v", run)
+	}
+	saved := history.Open(cache, "/repo").Load(10)
+	if len(saved) != 1 || !saved[0].Started.Equal(started) {
+		t.Fatalf("the run is saved: %+v", saved)
+	}
+	again := testModel(t)
+	again.history = history.Open(cache, "/repo")
+	for _, msg := range runAll(again.loadHistory()) {
+		again.Update(msg)
+	}
+	if len(again.runs) != 1 || len(again.historyIndex["t3"]) != 1 {
+		t.Errorf("the next start loads it: %d runs", len(again.runs))
 	}
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/steven509/testdash/internal/catalog"
 	"github.com/steven509/testdash/internal/databases"
 	"github.com/steven509/testdash/internal/gradle"
+	"github.com/steven509/testdash/internal/history"
 	"github.com/steven509/testdash/internal/logformat"
 	"github.com/steven509/testdash/internal/progress"
 	"github.com/steven509/testdash/internal/runner"
@@ -161,6 +162,14 @@ type Model struct {
 	detailFrom    panel // the panel whose selection the detail shows
 	zoomed        bool
 	away          bool // the terminal is in the background, as it reports
+	history       *history.Store
+	runs          []history.Run // the build's runs, newest first
+	recorded      []history.Run // the runs since testdash started
+	historyIndex  history.Index
+	runCommit     string // the commit the run's code was at, and whether the working tree had changes
+	runDirty      bool
+	runFilters    []string
+	stopRequested bool
 	popup         popup
 	toasts        []*toast
 	toastSeq      int
@@ -186,6 +195,7 @@ func New(ctx context.Context, opts Options, prefs settings.Settings) *Model {
 	useIcons(prefs.NerdFont, prefs.IconSpacing)
 	if opts.BuildRoot != "" {
 		m.catalog = catalog.Load(opts.BuildRoot)
+		m.history = history.Open(catalog.CacheDir(), opts.BuildRoot)
 	}
 	m.takeTaskArgs()
 	var scope []string
@@ -251,7 +261,7 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) Init() tea.Cmd {
-	cmds := []tea.Cmd{tick()}
+	cmds := []tea.Cmd{tick(), m.loadHistory()}
 	canDiscover := m.opts.BuildRoot != "" && (m.opts.Command == nil || m.commandIsGradle())
 	switch {
 	case m.runAtStart && m.baseCommand() != nil:
@@ -693,6 +703,7 @@ func (m *Model) launch(filters []string, picked map[string]bool) tea.Cmd {
 	}
 	_ = os.RemoveAll(filepath.Join(m.opts.RunDir, "wiremock-journal"))
 	m.runStarted, m.runFinished, m.exitCode = time.Now(), time.Time{}, 0
+	m.runFilters, m.stopRequested, m.runCommit, m.runDirty = filters, false, "", false
 	m.portConflict, m.explained = "", map[string]bool{}
 	m.progress = progress.New(m.opts.RunDir)
 	m.inRun = map[string]bool{}
@@ -710,7 +721,7 @@ func (m *Model) launch(filters []string, picked map[string]bool) tea.Cmd {
 	m.tree.rebuild(m, false)
 	m.version++
 	m.showRun()
-	spin := m.spin()
+	spin := tea.Batch(m.spin(), m.readCommit())
 
 	send, runDir, quiet := m.send, m.opts.RunDir, !m.opts.ShowTestOutput
 	workdir, run := m.opts.Workdir, m.runner
@@ -821,7 +832,7 @@ func (m *Model) explainPort(msg portHolderMsg) {
 func (m *Model) runDone(code int) tea.Cmd {
 	m.exitCode, m.runFinished = code, time.Now()
 	m.watcher.EndRun(m.runFinished)
-	cmd := m.tick()
+	cmd := tea.Batch(m.tick(), m.recordRun(code))
 	took := duration(m.runFinished.Sub(m.runStarted).Milliseconds())
 	summary := m.runSummary()
 	if code == 0 {
@@ -847,6 +858,7 @@ func (m *Model) runDone(code int) tea.Cmd {
 func (m *Model) stop() {
 	if m.runner.Running() {
 		m.runner.Stop()
+		m.stopRequested = true
 		m.notify("Stopping: x again kills it", "", "information")
 	} else if m.discovering {
 		m.discovery.Stop()
