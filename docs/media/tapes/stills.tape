@@ -1,5 +1,5 @@
 Source common.tape
-Set FontSize 28
+Set FontSize 21
 Set Width 2276
 Set Height 1224
 Source setup.tape
@@ -7,29 +7,22 @@ Type@2ms "testdash"
 Enter
 Wait+Screen@300s /tests ready/
 Sleep 500ms
-
-# The last run, before this one
 Show
-Sleep 800ms
-Screenshot shots/history.png
-Type "H"
-Sleep 800ms
-Screenshot shots/runs.png
-Escape
 
-# Picking: collapse the first classes, select a class and part of another
+# Picking: part of a Cucumber feature, a whole class, another class open
 Down
-Left
+Right
 Down
-Left
-Down
-Left
+Right
 Down
 Space
-Down 9
+Down
 Space
+Down 3
+Right
 Space
-Space
+Down 4
+Right
 Type "g"
 Sleep 1s
 Screenshot shots/pick.png
@@ -52,9 +45,10 @@ Wait+Screen@90s /FAILED [0-9]/
 Sleep 6s
 Screenshot shots/finished.png
 
-# The run's parts at full size: everything in one place, the activity, the classes
+# The run's parts, each with the whole screen: everything in one place, the activity, the classes
 Type "3"
 Type "]"
+Type "z"
 Sleep 300ms
 PageUp
 Up 3
@@ -66,6 +60,7 @@ Screenshot shots/activity.png
 Type "]"
 Sleep 800ms
 Screenshot shots/classes.png
+Type "z"
 Escape
 Type "1"
 
@@ -139,7 +134,7 @@ Down
 Sleep 800ms
 Type "3"
 PageDown 30
-Up 3
+Up 5
 Sleep 800ms
 Screenshot shots/redis.png
 
@@ -161,5 +156,19 @@ Escape
 Type "q"
 Sleep 600ms
 Screenshot shots/quit.png
+Type "y"
+Sleep 1s
+
+# Starting again: the last run, and the runs before
+Type@2ms "testdash"
+Enter
+Wait+Screen@60s /tests ready/
+Sleep 1s
+Screenshot shots/history.png
+Type "H"
+Sleep 800ms
+Screenshot shots/runs.png
+Escape
+Type "q"
 Type "y"
 Sleep 500ms

@@ -15,9 +15,9 @@ Gradle home under `$TMPDIR/testdash-media`, so your settings and run history sta
 first if it is running: the recordings use the same Compose project.
 
 - `tapes/` are the VHS scripts: `warmup.tape` runs the tests once, so there is a run before; `stills.tape` walks
-  through every screen taking screenshots, and `scene1` to `scene6` are the trailer's scenes. They type keys, so
-  they follow the demo's test order and services. The scenes run testdash with `TESTDASH_KEYCAST=shortcuts`,
-  which shows each shortcut pressed and what it did. Everything is recorded before anything is written into the
+  through every screen taking screenshots, and `scene1` to `scene7` are the trailer's scenes; only the first
+  starts from the shell. They type keys, so they follow the demo's test order and services. The scenes run
+  testdash with `TESTDASH_KEYCAST=shortcuts`, which shows each shortcut pressed and what it did. Everything is recorded before anything is written into the
   repository, so the runs' history shows a clean working tree.
 - `compose/` frames the screenshots in a window (`window.html`), and builds the trailer from the scenes on a
   captioned backdrop (`scene.html`) between a title and an end card (`card.html`), with headless Chrome and ffmpeg.

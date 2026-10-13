@@ -49,7 +49,7 @@ record() {
 }
 
 stills=(running pick failure traces wiremock kafka logs sql redis noise live activity classes history runs settings)
-scenes=(scene1 scene2 scene3 scene4 scene5 scene6)
+scenes=(scene1 scene2 scene3 scene4 scene5 scene6 scene7)
 
 setup
 record warmup # lists the demo's tests, starts Gradle's daemon and runs the tests once, to have a run before

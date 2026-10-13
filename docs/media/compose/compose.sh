@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the trailer from the scene recordings: each in a window on a captioned backdrop, between a title card
-# and an end card, joined with crossfades. Usage: compose.sh <dir with scene1.mp4...scene6.mp4> <trailer.mp4>
+# and an end card, joined with crossfades. Usage: compose.sh <dir with scene1.mp4...scene7.mp4> <trailer.mp4>
 set -euo pipefail
 here=$(cd "$(dirname "$0")" && pwd)
 vhs=$1
@@ -15,14 +15,15 @@ chrome() {
 urlencode() { python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1"; }
 
 captions=(
-  "Pick the tests to run|Every class, nested class and parameterised test, and what failed last time"
+  "Pick up where you left off|The last run's failures, F to run them again, and every run before it"
+  "Pick the tests to run|Classes, nested classes, parameterised tests and Cucumber features, with a filter"
   "Watch the run, live|Progress, then everything every service does, in one feed and on a rolling chart"
   "See why a test failed|Every request, query, message and log line while it ran, grouped by trace"
   "Follow every service|Your app's logs, WireMock, Kafka, MariaDB, MongoDB, Postgres and Redis"
   "Cut the noise|Hide the chatter with a rule, seeing what it matches as you type"
-  "Remember every run|What failed before, for how long, and the runs to run again"
+  "Make it yours|Accent colours, icons and more, a few keys away in the command palette"
 )
-speed=(1 1.8 1 1 1 1) # the run itself plays faster
+speed=(1 1 1.8 1 1 1 1) # the run itself plays faster
 scenes=${#captions[@]}
 
 fps=30
