@@ -1631,8 +1631,10 @@ func TestActivityColumnsKeepTheirCounts(t *testing.T) {
 		lines = append(lines, logformat.NewLine(start.Add(at), "line"))
 	}
 	m.output.add(lines...)
-	if grid := m.activityGrid(100, start.Add(12*time.Second)); !grid.from.Equal(start) {
-		t.Errorf("the activity fills from the run's start until its window is full, not from %v", grid.from.Sub(start))
+	early := m.activityGrid(100, start.Add(12*time.Second))
+	if counts := m.activityRows(early)[1].counts; early.column(start.Add(12*time.Second)) != 99 || counts[0] != 0 ||
+		counts[98] != 3 {
+		t.Errorf("the activity ends now at the right from the run's start, empty before it: %v", counts)
 	}
 	earlier, later := m.activityGrid(100, start.Add(40*time.Second)), m.activityGrid(100, start.Add(41*time.Second))
 	if earlier.step != 300*time.Millisecond || later.to.Sub(later.from) > 30*time.Second {

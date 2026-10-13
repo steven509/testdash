@@ -54,7 +54,7 @@ queries) and a dot for whether it runs.
   see all of it beside, `enter` opens it in its service, `/` filters, `c` copies and `t` narrows everything to
   its trace. *Activity* draws each source's sparkline as a taller chart, its top labelled with its peak rate, and *Classes* puts each test on the
   run's time line under its class. `z` gives any of them the whole screen. While the run goes, the activity
-  shows its last 30 seconds, moving on with it a column at a time; `+` and `−` show from 10 seconds to 5
+  shows its last 30 seconds, ending now at the right and moving left a column at a time; `+` and `−` show from 10 seconds to 5
   minutes (kept in the settings). Once the run is over, it shows the whole run.
   Before the first run, the last run kept, with its failures (`F` runs them again), and the keys that get you
   started.

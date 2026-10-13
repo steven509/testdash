@@ -271,17 +271,15 @@ func statusColor(status string) color.Color {
 
 // axis marks a time line width cells long: the start, the middle and the end.
 func axis(width int, span time.Duration) string {
-	return axisBetween(width, 0, span)
+	return axisLabels(width, "0s", duration(span.Milliseconds()/2), duration(span.Milliseconds()))
 }
 
-// axisBetween marks a time line of a stretch of the run width cells long, by the run's time at its start, middle
-// and end.
-func axisBetween(width int, from, to time.Duration) string {
+// axisLabels marks a line width cells long at its start, middle and end.
+func axisLabels(width int, start, middle, end string) string {
 	marks := []struct {
 		at    int
 		label string
-	}{{0, duration(from.Milliseconds())}, {width / 2, duration((from + (to-from)/2).Milliseconds())},
-		{width, duration(to.Milliseconds())}}
+	}{{0, start}, {width / 2, middle}, {width, end}}
 	line := []rune(strings.Repeat(" ", width))
 	for _, mark := range marks {
 		label := []rune(mark.label)
@@ -333,9 +331,9 @@ func (row activityRow) heading() string {
 }
 
 // activityGrid is the stretch of the run the activity shows, in columns of one step each. While the run goes it
-// is the last stretch, as long as the activity window setting, and moves with the run a column at a time; the
-// columns keep to steps from the run's start, so each counts the same slice of the run for as long as it shows.
-// Once the run is over, it is the whole run.
+// is the last stretch, as long as the activity window setting, ending now at the right and moving left a column
+// at a time, with nothing left of where the run started; the columns keep to steps from the run's start, so each
+// counts the same slice of the run for as long as it shows. Once the run is over, it is the whole run.
 type activityGrid struct {
 	start    time.Time // the run's
 	from, to time.Time // the first column's start, and the last moment counted
@@ -353,14 +351,14 @@ func (m *Model) activityGrid(columns int, now time.Time) activityGrid {
 	}
 	window := m.prefs.Window()
 	step := max(time.Millisecond, window/time.Duration(columns))
-	first := max(0, int(now.Sub(start)/step)-columns+1)
+	first := int(now.Sub(start)/step) - columns + 1 // before the run's start, until a window of it has gone by
 	return activityGrid{start: start, from: start.Add(time.Duration(first) * step), to: now, step: step,
 		columns: columns, window: window}
 }
 
-// column is the column a moment falls in, or -1 outside the grid.
+// column is the column a moment falls in, or -1 outside the grid or the run.
 func (g activityGrid) column(at time.Time) int {
-	if at.Before(g.from) || at.After(g.to) {
+	if at.Before(g.from) || at.Before(g.start) || at.After(g.to) {
 		return -1
 	}
 	return min(g.columns-1, int(at.Sub(g.from)/g.step))
@@ -379,9 +377,13 @@ func (g activityGrid) about() string {
 	return "the whole run, " + duration(g.to.Sub(g.start).Milliseconds())
 }
 
+// axis marks the grid by how long ago its start and middle were while the run goes, else by the run's time.
 func (g activityGrid) axis() string {
-	from := g.from.Sub(g.start)
-	return axisBetween(g.columns, from, from+g.step*time.Duration(g.columns))
+	if g.window > 0 {
+		ago := func(d time.Duration) string { return duration(d.Milliseconds()) + " ago" }
+		return axisLabels(g.columns, ago(g.window), ago(g.window/2), "now")
+	}
+	return axis(g.columns, g.to.Sub(g.start))
 }
 
 // activityRows count what each source did in each column of a grid, leaving out what came before it or after
