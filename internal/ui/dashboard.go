@@ -59,6 +59,9 @@ func (m *Model) dashboard(width, height int) string {
 		}
 		return b.String()
 	}
+	if since := m.sinceLastRun(width); since != "" {
+		b.WriteString("\n" + since)
+	}
 	b.WriteString("\n" + m.classTable(width))
 	b.WriteString("\n" + m.activitySection(width))
 	if slow := m.slowest(ids, 5, width); slow != "" {

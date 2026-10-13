@@ -1070,6 +1070,22 @@ func TestFlakyTests(t *testing.T) {
 	}
 }
 
+func TestSinceTheLastRun(t *testing.T) {
+	m := testModel(t)
+	m.history = history.Open(t.TempDir(), "/repo")
+	earlier := time.Date(2026, 10, 12, 9, 30, 0, 0, time.Local)
+	m.setRuns([]history.Run{{Started: earlier, Task: ":test", Commit: "fedcba987",
+		Tests: []history.Result{{ID: "t1", Status: "failed"}, {ID: "t3", Status: "passed"}, {ID: "t4", Status: "skipped"}}}})
+	runAll(finishRun(t, m, time.Now().Add(-time.Second)))
+	s := screen(m)
+	for _, want := range []string{"SINCE THE LAST RUN  12 Oct 09:30 (fedcba9)", "Fail anew  1", "FooTest › when inner › three",
+		"Fixed  1", "FooTest › one"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the overview lacks %q:\n%s", want, s)
+		}
+	}
+}
+
 func TestNumbers(t *testing.T) {
 	for n, want := range map[int]string{0: "0", 999: "999", 1000: "1,000", 1456: "1,456", 107000: "107,000",
 		1234567: "1,234,567", -4200: "-4,200"} {

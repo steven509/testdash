@@ -178,3 +178,67 @@ func resultStyle(status string) style.Style {
 	}
 	return style.Dim
 }
+
+// sinceLastRun compares the run that just finished with the one before it of the same task: the tests that fail
+// anew, the ones it fixed, and the ones that got slower.
+func (m *Model) sinceLastRun(width int) string {
+	if len(m.runs) < 2 || m.running() || !m.runs[0].Started.Equal(m.runStarted) {
+		return ""
+	}
+	latest := m.runs[0]
+	var before *history.Run
+	for i := 1; i < len(m.runs) && before == nil; i++ {
+		if m.runs[i].Task == latest.Task {
+			before = &m.runs[i]
+		}
+	}
+	if before == nil {
+		return ""
+	}
+	previous := map[string]history.Result{}
+	for _, result := range before.Tests {
+		previous[result.ID] = result
+	}
+	var failing, fixed, slower []string
+	for _, result := range latest.Tests {
+		entry, earlier := m.entries[result.ID], previous[result.ID]
+		if entry == nil || earlier.Status == "" {
+			continue
+		}
+		name := strings.Join(append(m.groupOf(entry), cleanText(entry.Name)), " › ")
+		switch {
+		case (result.Status == "failed" || result.Status == "aborted") && earlier.Status == "passed":
+			failing = append(failing, name)
+		case result.Status == "passed" && (earlier.Status == "failed" || earlier.Status == "aborted"):
+			fixed = append(fixed, name)
+		}
+		if s := history.Summarise(m.historyIndex[result.ID]); s.Slower {
+			slower = append(slower, name+style.Dim.Render(fmt.Sprintf("  %s, usually %s", duration(result.Took),
+				duration(s.Usually))))
+		}
+	}
+	var b strings.Builder
+	b.WriteString(section("Since the last run", width, runLabel(before)) + "\n")
+	if len(failing)+len(fixed)+len(slower) == 0 {
+		return b.String() + style.Muted.Render("The same results, and no test got slower") + "\n"
+	}
+	for _, group := range []struct {
+		mark, label string
+		style       style.Style
+		names       []string
+	}{{ic.failed, "Fail anew", style.Red, failing}, {ic.passed, "Fixed", style.Green, fixed},
+		{ic.clock, "Slower", style.Yellow, slower}} {
+		if len(group.names) == 0 {
+			continue
+		}
+		b.WriteString(group.style.Render(group.mark+" "+group.label) + style.Dim.Render("  "+number(len(group.names))) + "\n")
+		for i, name := range group.names {
+			if i == 5 {
+				b.WriteString(style.Dim.Render(fmt.Sprintf("    and %s more", number(len(group.names)-5))) + "\n")
+				break
+			}
+			b.WriteString("    " + fit(name, width-4, true) + "\n")
+		}
+	}
+	return b.String()
+}
