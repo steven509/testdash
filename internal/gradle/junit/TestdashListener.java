@@ -28,7 +28,11 @@ import java.util.regex.Pattern;
 
 import org.junit.platform.engine.TestExecutionResult;
 import org.junit.platform.engine.TestSource;
+import org.junit.platform.engine.UniqueId;
 import org.junit.platform.engine.support.descriptor.ClassSource;
+import org.junit.platform.engine.support.descriptor.ClasspathResourceSource;
+import org.junit.platform.engine.support.descriptor.FilePosition;
+import org.junit.platform.engine.support.descriptor.FileSource;
 import org.junit.platform.engine.support.descriptor.MethodSource;
 import org.junit.platform.launcher.TestExecutionListener;
 import org.junit.platform.launcher.TestIdentifier;
@@ -43,7 +47,9 @@ import org.junit.platform.launcher.TestPlan;
  * registered events. A failure to write disables the listener rather than failing the run.
  *
  * Entries carry the fully qualified class name and the method name, which are what a Gradle --tests filter
- * matches. Uses only API present since JUnit Platform 1.0, so one build works with any 1.x launcher.
+ * matches; tests from files, such as Cucumber's scenarios, carry their file and line instead, under groups for
+ * the feature, rule and scenario outline. Uses only API present since JUnit Platform 1.0, so one build works with
+ * any 1.x launcher.
  *
  * When Testcontainers is on the classpath, containers events name the labels it will clean up by: its session
  * id, and each Compose project's name, registered before the project starts. They tell this run's containers
@@ -57,6 +63,7 @@ public class TestdashListener implements TestExecutionListener {
     private static final String RESOURCE_REAPER = "org.testcontainers.utility.ResourceReaper";
 
     private Writer out;
+    private TestPlan plan;
     private Thread containerWatcher;
     private final Set<String> containerLabels = new LinkedHashSet<>();
     private WireMockJournals journals;
@@ -75,6 +82,7 @@ public class TestdashListener implements TestExecutionListener {
             out = null;
             return;
         }
+        plan = testPlan;
         write("plan", "\"entries\":[" + String.join(",", planEntries(testPlan)) + "]");
         watchContainers();
         journals = new WireMockJournals(Paths.get(dir));
@@ -146,7 +154,7 @@ public class TestdashListener implements TestExecutionListener {
     }
 
     private static void addInRunOrder(TestPlan testPlan, TestIdentifier identifier, List<String> entries) {
-        String entry = entry(identifier);
+        String entry = entry(testPlan, identifier);
         if (entry != null) {
             entries.add(entry);
         }
@@ -157,7 +165,7 @@ public class TestdashListener implements TestExecutionListener {
 
     @Override
     public synchronized void dynamicTestRegistered(TestIdentifier testIdentifier) {
-        String entry = entry(testIdentifier);
+        String entry = plan == null ? null : entry(plan, testIdentifier);
         if (entry != null) {
             write("registered", "\"entry\":" + entry);
         }
@@ -217,22 +225,28 @@ public class TestdashListener implements TestExecutionListener {
         }
     }
 
-    /** A class, a test, or a test template such as a parameterised test; null for anything else (an engine). */
+    /**
+     * A class, a test, or a test template such as a parameterised test; a group of tests from a file, such as a
+     * Cucumber feature, rule or scenario outline, is a class too. Null for anything else, such as an engine.
+     */
     private static String kind(TestIdentifier identifier) {
         TestSource source = identifier.getSource().orElse(null);
         if (identifier.isTest()) {
             return "test";
         }
-        if (source instanceof ClassSource) {
-            return "class";
+        if (UniqueId.parse(identifier.getUniqueId()).getLastSegment().getType().equals("engine")) {
+            return null; // as Cucumber's, which has a source when cucumber.features names the features
         }
         if (source instanceof MethodSource) {
             return "template";
         }
+        if (source instanceof ClassSource || source != null && identifier.isContainer()) {
+            return "class";
+        }
         return null;
     }
 
-    static String entry(TestIdentifier identifier) {
+    static String entry(TestPlan testPlan, TestIdentifier identifier) {
         String kind = kind(identifier);
         if (kind == null) {
             return null;
@@ -240,19 +254,43 @@ public class TestdashListener implements TestExecutionListener {
         TestSource source = identifier.getSource().orElse(null);
         String className = null;
         String methodName = null;
+        String file = null;
+        Integer line = null;
         if (source instanceof ClassSource) {
             className = ((ClassSource) source).getClassName();
         } else if (source instanceof MethodSource) {
             className = ((MethodSource) source).getClassName();
             methodName = ((MethodSource) source).getMethodName();
+        } else if (source instanceof ClasspathResourceSource) {
+            ClasspathResourceSource resource = (ClasspathResourceSource) source;
+            file = "classpath:" + resource.getClasspathResourceName();
+            line = resource.getPosition().map(FilePosition::getLine).orElse(null);
+        } else if (source instanceof FileSource) {
+            file = ((FileSource) source).getFile().getPath();
+            line = ((FileSource) source).getPosition().map(FilePosition::getLine).orElse(null);
         }
-        Optional<String> parent = identifier.getParentId();
+        TestIdentifier parent = parentEntry(testPlan, identifier);
+        String name = identifier.getDisplayName();
+        if (parent != null && name.startsWith(parent.getDisplayName() + " - ")) {
+            name = name.substring(parent.getDisplayName().length() + 3); // as Cucumber's long names repeat their parents'
+        }
         return "{\"id\":" + json(identifier.getUniqueId())
-            + ",\"parent\":" + json(parent.orElse(null))
+            + ",\"parent\":" + json(parent == null ? null : parent.getUniqueId())
             + ",\"kind\":" + json(kind)
             + ",\"className\":" + json(className)
             + ",\"methodName\":" + json(methodName)
-            + ",\"name\":" + json(identifier.getDisplayName()) + "}";
+            + (file == null ? "" : ",\"file\":" + json(file))
+            + (line == null ? "" : ",\"line\":" + line)
+            + ",\"name\":" + json(name) + "}";
+    }
+
+    /** The nearest ancestor that is an entry too, past what is not, such as the Cucumber engine in a suite. */
+    private static TestIdentifier parentEntry(TestPlan testPlan, TestIdentifier identifier) {
+        Optional<TestIdentifier> parent = testPlan.getParent(identifier);
+        while (parent.isPresent() && kind(parent.get()) == null) {
+            parent = testPlan.getParent(parent.get());
+        }
+        return parent.orElse(null);
     }
 
     /** The stack trace, its causes included, cut to its first 80 lines. */

@@ -141,3 +141,63 @@ func TestMatchTestsLikeGradle(t *testing.T) {
 		}
 	}
 }
+
+// cucumberEntries are a Cucumber suite as the listener writes it: the suite class, its features, a rule and a
+// scenario outline as groups, and scenarios with their lines, beside a JUnit class.
+func cucumberEntries() []*Entry {
+	checkout, refunds := `"file": "classpath:features/checkout.feature"`, `"file": "classpath:features/refunds.feature"`
+	raw := []string{
+		`{"id": "s", "parent": null, "kind": "class", "className": "com.a.RunCucumberTests", "name": "RunCucumberTests"}`,
+		`{"id": "f1", "parent": "s", "kind": "class", ` + checkout + `, "name": "Checkout"}`,
+		`{"id": "a", "parent": "f1", "kind": "test", ` + checkout + `, "line": 6, "name": "A cart is checked out"}`,
+		`{"id": "r", "parent": "f1", "kind": "class", ` + checkout + `, "line": 12, "name": "Carts take known products"}`,
+		`{"id": "b", "parent": "r", "kind": "test", ` + checkout + `, "line": 14, "name": "An unknown product"}`,
+		`{"id": "o", "parent": "f1", "kind": "class", ` + checkout + `, "line": 20, "name": "Delivery is quoted"}`,
+		`{"id": "e", "parent": "o", "kind": "class", ` + checkout + `, "line": 24, "name": "Examples"}`,
+		`{"id": "c", "parent": "e", "kind": "test", ` + checkout + `, "line": 26, "name": "Example #1.1"}`,
+		`{"id": "d", "parent": "e", "kind": "test", ` + checkout + `, "line": 27, "name": "Example #1.2"}`,
+		`{"id": "f2", "parent": "s", "kind": "class", ` + refunds + `, "name": "Refunds"}`,
+		`{"id": "g", "parent": "f2", "kind": "test", ` + refunds + `, "line": 3, "name": "A refund"}`,
+		`{"id": "j", "parent": null, "kind": "class", "className": "com.a.FooTest", "name": "FooTest"}`,
+		`{"id": "m", "parent": "j", "kind": "test", "className": "com.a.FooTest", "methodName": "one", "name": "one()"}`,
+		`{"id": "n", "parent": "j", "kind": "test", "className": "com.a.FooTest", "methodName": "two", "name": "two()"}`,
+	}
+	var out []*Entry
+	for _, r := range raw {
+		var e RawEntry
+		if err := json.Unmarshal([]byte(r), &e); err != nil {
+			panic(err)
+		}
+		out = append(out, FromRaw(e))
+	}
+	return out
+}
+
+func TestGradleFiltersForCucumber(t *testing.T) {
+	task := &TestTask{Path: ":test", Entries: cucumberEntries()}
+	suite, inSuite := []string{"--tests", "com.a.RunCucumberTests"}, "-Ptestdash.cucumberInSuite=true"
+	for name, c := range map[string]struct {
+		selected map[string]bool
+		want     []string
+	}{
+		"scenarios": {set("a", "c"),
+			append(suite, "-Ptestdash.cucumberFeatures=classpath:features/checkout.feature:6:26", inSuite)},
+		"an outline and a whole feature": {set("c", "d", "g"),
+			append(suite, "-Ptestdash.cucumberFeatures=classpath:features/checkout.feature:26:27,classpath:features/refunds.feature", inSuite)},
+		"the whole suite": {set("a", "b", "c", "d", "g"),
+			[]string{"--tests", "com.a.RunCucumberTests", "--tests", "com.a.RunCucumberTests$*"}},
+		"a test beside a scenario": {set("m", "b"),
+			append([]string{"--tests", "com.a.FooTest.one"}, append(suite,
+				"-Ptestdash.cucumberFeatures=classpath:features/checkout.feature:14", inSuite)...)},
+	} {
+		if got := GradleFilters(task, c.selected); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+	if matched := MatchTests(task, []string{"RunCucumberTests"}); len(matched) != 5 || !matched["g"] {
+		t.Errorf("--tests on the suite matches its scenarios: %v", matched)
+	}
+	if name := task.Entries[1].ShortClass(); name != "Checkout" {
+		t.Errorf("a feature is named by its name, not %q", name)
+	}
+}

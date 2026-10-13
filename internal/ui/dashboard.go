@@ -129,10 +129,7 @@ func (m *Model) runClasses() []classRow {
 	var rows []classRow
 	index := map[string]int{}
 	for _, leaf := range m.runLeaves() {
-		top := m.entries[leaf.ID]
-		for top != nil && m.entries[top.Parent] != nil {
-			top = m.entries[top.Parent]
-		}
+		top := m.classRow(m.entries[leaf.ID])
 		if top == nil {
 			continue
 		}
@@ -161,6 +158,31 @@ func (m *Model) runClasses() []classRow {
 		}
 	}
 	return rows
+}
+
+// classRow is what a test is counted under on the run's time line: its top-level class, or for a test from a
+// file, as a Cucumber scenario, its feature rather than the suite that runs it.
+func (m *Model) classRow(entry *catalog.Entry) *catalog.Entry {
+	top := entry
+	for top != nil && m.entries[top.Parent] != nil {
+		parent := m.entries[top.Parent]
+		if entry.File != "" && parent.File == "" {
+			break
+		}
+		top = parent
+	}
+	return top
+}
+
+// classOf is the class a test runs in: its own, or for a test from a file, the class above it that runs it.
+func (m *Model) classOf(entry *catalog.Entry) string {
+	for entry != nil && entry.ClassName == "" {
+		entry = m.entries[entry.Parent]
+	}
+	if entry == nil {
+		return ""
+	}
+	return entry.ClassName
 }
 
 // classTable is every class in the run on the run's time line: when it was setting up (a thin line), when each
@@ -245,12 +267,15 @@ func (m *Model) classTable(width int, tests bool) string {
 			cells := make([]style.Cell, barWidth)
 			draw(cells, state.StartedAt, state.FinishedAt, style.Cell{Char: "━", Color: statusColor(state.Status)})
 			mark, markStyle := icon(state.Status)
-			names := append(m.groupOf(entry), cleanText(entry.Name))
+			names := []string{cleanText(entry.Name)} // under the row: its nested classes, parameterised test, rule
+			for parent := m.entries[entry.Parent]; parent != nil && parent != r.entry; parent = m.entries[parent.Parent] {
+				names = append([]string{cleanText(parent.Name)}, names...)
+			}
 			took := ""
 			if t, ok := state.Took(nowMillis); ok {
 				took = duration(t)
 			}
-			b.WriteString(markStyle.Render(mark) + " " + fit(style.Muted.Render("  "+strings.Join(names[1:], " › ")), nameWidth, true) +
+			b.WriteString(markStyle.Render(mark) + " " + fit(style.Muted.Render("  "+strings.Join(names, " › ")), nameWidth, true) +
 				" " + style.Cells(cells) + " " + strings.Repeat(" ", countsWidth+1) + style.Dim.Render(fmt.Sprintf("%6s", took)) + "\n")
 		}
 	}

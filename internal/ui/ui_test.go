@@ -1719,3 +1719,74 @@ func TestActivityPeaksAsRates(t *testing.T) {
 		t.Errorf("each chart says what its top stands for:\n%s", s)
 	}
 }
+
+func TestCucumberFeatures(t *testing.T) {
+	m := testModel(t)
+	m.opts.Command = []string{"./gradlew"}
+	feature := func(id, parent, kind, file string, line int, name string) *catalog.Entry {
+		return &catalog.Entry{ID: id, Parent: parent, Kind: kind, File: file, Line: line, Name: name}
+	}
+	checkout, refunds := "classpath:features/checkout.feature", "classpath:features/refunds.feature"
+	m.catalog.Tasks[":cucumber"] = &catalog.TestTask{Path: ":cucumber", Entries: []*catalog.Entry{
+		entry("s", "", "class", "com.example.shop.RunCucumberTests", "", "RunCucumberTests"),
+		feature("f1", "s", "class", checkout, 0, "Checkout"),
+		feature("a", "f1", "test", checkout, 6, "A cart is checked out"),
+		feature("b", "f1", "test", checkout, 12, "An unknown product is turned away"),
+		feature("f2", "s", "class", refunds, 0, "Refunds"),
+		feature("g", "f2", "test", refunds, 3, "A refund is paid back"),
+	}}
+	m.catalog.Paths = append(m.catalog.Paths, ":cucumber")
+	m.chooseTask(":cucumber", true)
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	s := screen(m)
+	for _, want := range []string{"RunCucumberTests", "Checkout", "A cart is checked out", "Refunds"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the tests show the features and their scenarios, lacking %q:\n%s", want, s)
+		}
+	}
+
+	m.runStarted, m.runFinished = time.Now().Add(-5*time.Second), time.Time{}
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{}
+	at := m.runStarted.Add(time.Second).UnixMilli()
+	events := fmt.Sprintf(`{"event":"plan","at":1,"entries":[`+
+		`{"id":"s","kind":"class","className":"com.example.shop.RunCucumberTests","name":"RunCucumberTests"},`+
+		`{"id":"f1","parent":"s","kind":"class","file":"%[1]s","name":"Checkout"},`+
+		`{"id":"a","parent":"f1","kind":"test","file":"%[1]s","line":6,"name":"A cart is checked out"},`+
+		`{"id":"b","parent":"f1","kind":"test","file":"%[1]s","line":12,"name":"An unknown product is turned away"},`+
+		`{"id":"f2","parent":"s","kind":"class","file":"%[2]s","name":"Refunds"},`+
+		`{"id":"g","parent":"f2","kind":"test","file":"%[2]s","line":3,"name":"A refund is paid back"}]}
+{"event":"started","at":%[3]d,"id":"a"}
+{"event":"finished","at":%[4]d,"id":"a","status":"SUCCESSFUL"}
+{"event":"started","at":%[4]d,"id":"b"}
+{"event":"finished","at":%[5]d,"id":"b","status":"FAILED","message":"AssertionFailedError: expected: <404> but was: <500>","trace":"org.opentest4j.AssertionFailedError: expected: <404> but was: <500>\n\tat org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:150)\n\tat com.example.shop.CheckoutSteps.theShopAnswers(CheckoutSteps.java:52)"}
+{"event":"started","at":%[5]d,"id":"g"}
+{"event":"finished","at":%[6]d,"id":"g","status":"SUCCESSFUL"}
+`, checkout, refunds, at, at+300, at+700, at+900)
+	if err := os.WriteFile(filepath.Join(m.opts.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tickMsg{})
+	m.runFinished = time.Now()
+	m.inspector.overview.setActive("classes")
+	m.tree.cursor = ""
+	s = screen(m)
+	if !strings.Contains(s, "Checkout") || !strings.Contains(s, "Refunds") || !strings.Contains(s, "2 of 2 done") {
+		t.Errorf("the run's time line has a row for each feature, not the suite:\n%s", s)
+	}
+	if !strings.Contains(s, "  An unknown product") || strings.Contains(s, "Checkout › An unknown") {
+		t.Errorf("a feature's scenarios are named under it:\n%s", s)
+	}
+	m.tree.cursor, m.dirty = "b", true
+	s = screen(m)
+	if !strings.Contains(s, "features/checkout.feature:12") ||
+		!strings.Contains(s, "at com.example.shop.CheckoutSteps.theShopAnswers") {
+		t.Errorf("a scenario's details say where it is, and show the steps' frames:\n%s", s)
+	}
+	m.runStarted, m.runFinished = time.Time{}, time.Time{}
+	runAll(m.startRun(map[string]bool{"b": true}))
+	if want := "--tests com.example.shop.RunCucumberTests -Ptestdash.cucumberFeatures=" + checkout + ":12 " +
+		"-Ptestdash.cucumberInSuite=true"; strings.Join(m.runFilters, " ") != want {
+		t.Errorf("a scenario runs through its suite, with Cucumber's filter: %q", m.runFilters)
+	}
+}

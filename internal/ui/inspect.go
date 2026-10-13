@@ -378,13 +378,16 @@ func httpStatus(status int) string {
 // testCard is a test's name, where it sits, how it did, and its failure with its stack trace.
 func (m *Model) testCard(entry *catalog.Entry, width int) string {
 	var b strings.Builder
-	pkg, _ := splitClass(entry.ClassName)
+	pkg, _ := splitClass(m.classOf(entry))
 	if pkg != "" {
 		b.WriteString(style.Dim.Render(pkg + " › "))
 	}
 	b.WriteString(style.Muted.Render(strings.Join(m.groupOf(entry), " › ")))
-	if entry.Method != "" {
+	switch {
+	case entry.Method != "":
 		b.WriteString(style.Dim.Render(" · " + entry.Method + "()"))
+	case entry.File != "":
+		b.WriteString(style.Dim.Render(" · " + strings.TrimPrefix(entry.File, "classpath:") + fmt.Sprintf(":%d", entry.Line)))
 	}
 	b.WriteString("\n\n")
 	status, state := m.status(entry.ID), m.state(entry.ID)
@@ -408,7 +411,7 @@ func (m *Model) testCard(entry *catalog.Entry, width int) string {
 			style.Muted.Render(", or run just it with ") + style.AccentBold.Render("enter") + style.Muted.Render(" from the details."))
 	case "failed", "aborted", "skipped":
 		if state.Message != "" || state.Trace != "" {
-			b.WriteString("\n" + failure(state, entry, width))
+			b.WriteString("\n" + failure(state, m.classOf(entry), width))
 		}
 	case "running":
 		b.WriteString("\n" + style.Cyan.Render(runningGlyph+" running…"))
@@ -439,7 +442,7 @@ func (m *Model) failureText(id string) string {
 
 // failure is a test's message and stack trace beside a bar in its colour. The project's own frames stay bright;
 // runs of library and framework frames fold into one line.
-func failure(state progress.State, entry *catalog.Entry, width int) string {
+func failure(state progress.State, className string, width int) string {
 	barColor := style.Fail
 	if state.Status == "skipped" {
 		barColor = style.Warn
@@ -455,7 +458,7 @@ func failure(state progress.State, entry *catalog.Entry, width int) string {
 	for _, line := range wrapLines(message, width-2) {
 		lines = append(lines, bar+style.Fg(barColor).Render(line))
 	}
-	own := projectRoot(entry.ClassName)
+	own := projectRoot(className)
 	folded := 0
 	fold := func() {
 		if folded > 0 {

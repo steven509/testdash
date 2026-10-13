@@ -9,18 +9,31 @@
 //   the tests but runs none of a Test task's other dependencies.
 //
 // Both need -Ptestdash.listenerJar, the jar testdash builds from junit/*.java.
+//
+// -Ptestdash.cucumberFeatures=FEATURES (run mode) runs only those Cucumber features or scenarios, as --tests
+//   cannot name them: Cucumber's own cucumber.features, a comma-separated list of files with lines. With
+//   -Ptestdash.cucumberInSuite=true they run in a JUnit Platform suite, so the cucumber engine on its own is left
+//   out, as it would run them a second time.
 
 def props = gradle.startParameter.projectProperties
 def listenerJar = props['testdash.listenerJar']
 def runDir = props['testdash.dir']
 def discoverDir = props['testdash.discover']
 def quietTestOutput = props['testdash.quietTestOutput'] == 'true'
+def cucumberFeatures = props['testdash.cucumberFeatures']
+def cucumberInSuite = props['testdash.cucumberInSuite'] == 'true'
 
 if (runDir && listenerJar) {
     gradle.taskGraph.whenReady { graph ->
         graph.allTasks.findAll { it instanceof Test }.each { Test test ->
             test.classpath = test.classpath + test.project.files(listenerJar)
             test.systemProperty('testdash.dir', runDir)
+            if (cucumberFeatures) {
+                test.systemProperty('cucumber.features', cucumberFeatures)
+                if (cucumberInSuite && test.options instanceof org.gradle.api.tasks.testing.junitplatform.JUnitPlatformOptions) {
+                    test.options.excludeEngines('cucumber')
+                }
+            }
             if (quietTestOutput) {
                 // the containers' logs have their own views
                 test.testLogging.showStandardStreams = false

@@ -9,6 +9,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,10 +24,12 @@ import (
 type Entry struct {
 	ID        string
 	Parent    string // empty for a top-level class
-	Kind      string // class | test | template
+	Kind      string // class | test | template; a group of tests from a file, as a Cucumber feature, is a class
 	ClassName string // binary name, so a nested class is Outer$Inner, as --tests matches it
 	Method    string // empty for a class
 	Name      string // display name
+	File      string // for tests from a file, as Cucumber's scenarios: classpath:features/a.feature, or a path
+	Line      int    // and where in it
 }
 
 // RawEntry is an entry as discovery, the listener and the cache write it.
@@ -37,6 +40,8 @@ type RawEntry struct {
 	ClassName  *string `json:"className"`
 	MethodName *string `json:"methodName"`
 	Name       *string `json:"name"`
+	File       *string `json:"file,omitempty"`
+	Line       *int    `json:"line,omitempty"`
 }
 
 func FromRaw(raw RawEntry) *Entry {
@@ -59,20 +64,30 @@ func FromRaw(raw RawEntry) *Entry {
 		ClassName: deref(raw.ClassName),
 		Method:    deref(raw.MethodName),
 		Name:      display(name, rawKind),
+		File:      deref(raw.File),
+		Line:      derefInt(raw.Line),
 	}
 }
 
 func (e *Entry) raw() RawEntry {
 	kind := e.Kind
-	return RawEntry{ID: e.ID, Parent: orNil(e.Parent), Kind: &kind, ClassName: &e.ClassName,
-		MethodName: orNil(e.Method), Name: &e.Name}
+	raw := RawEntry{ID: e.ID, Parent: orNil(e.Parent), Kind: &kind, ClassName: &e.ClassName,
+		MethodName: orNil(e.Method), Name: &e.Name, File: orNil(e.File)}
+	if e.Line > 0 {
+		raw.Line = &e.Line
+	}
+	return raw
 }
 
 func (e *Entry) IsLeaf() bool {
 	return e.Kind == "test" || e.Kind == "template"
 }
 
+// ShortClass is a class's name without its package, or a group from a file's own name.
 func (e *Entry) ShortClass() string {
+	if e.ClassName == "" {
+		return e.Name
+	}
 	name := e.ClassName[strings.LastIndex(e.ClassName, ".")+1:]
 	return strings.ReplaceAll(name, "$", ".")
 }
@@ -80,6 +95,7 @@ func (e *Entry) ShortClass() string {
 type TestTask struct {
 	Path    string // e.g. ":app:blackBoxTest"
 	Entries []*Entry
+	byID    map[string]*Entry // built when first needed
 }
 
 // Children maps each entry's id to its children, in order; top-level entries are under "".
@@ -257,10 +273,15 @@ func (c *Catalog) file() string {
 }
 
 // GradleFilters returns `--tests` arguments for the selected leaf ids, naming a whole class where all of it is
-// selected.
+// selected. Tests from files, which --tests cannot name, run through the class that runs them, as a Cucumber
+// suite, with Cucumber's own filter for which: a whole feature file, or its scenarios' lines.
 func GradleFilters(task *TestTask, selected map[string]bool) []string {
 	tree := task.Children()
-	var filters []string
+	var filters, suites []string
+	features := map[string][]int{} // a file's selected lines; none for all of it
+	var files []string
+	suite := "" // the class that runs the file the visit is in
+	inSuite := map[string]bool{}
 	var leavesUnder func(e *Entry) []*Entry
 	leavesUnder = func(e *Entry) []*Entry {
 		if e.IsLeaf() {
@@ -283,20 +304,87 @@ func GradleFilters(task *TestTask, selected map[string]bool) []string {
 		}
 		switch {
 		case picked == 0:
+		case e.File != "":
+			if _, seen := features[e.File]; !seen {
+				files = append(files, e.File)
+				features[e.File] = []int{}
+			}
+			if !inSuite[suite] {
+				inSuite[suite] = true
+				suites = append(suites, suite)
+			}
+			if picked == len(under) && (e.Line == 0 || e.Kind == "class" && task.entry(e.Parent).File != e.File) {
+				features[e.File] = nil // the whole feature
+				break
+			}
+			for _, leaf := range under {
+				if selected[leaf.ID] && features[e.File] != nil {
+					features[e.File] = append(features[e.File], leaf.Line)
+				}
+			}
 		case e.Kind == "class" && picked == len(under):
 			filters = append(filters, "--tests", e.ClassName, "--tests", e.ClassName+"$*") // and its @Nested classes
 		case e.IsLeaf():
 			filters = append(filters, "--tests", e.ClassName+"."+e.Method)
 		default:
+			outer := suite
+			if e.ClassName != "" {
+				suite = e.ClassName
+			}
 			for _, child := range tree[e.ID] {
 				visit(child)
 			}
+			suite = outer
 		}
 	}
 	for _, top := range tree[""] {
 		visit(top)
 	}
+	if len(files) == 0 {
+		return filters
+	}
+	for _, name := range suites {
+		if name != "" {
+			filters = append(filters, "--tests", name)
+		}
+	}
+	var specs []string
+	for _, file := range files {
+		spec := file
+		for _, line := range features[file] {
+			spec += fmt.Sprintf(":%d", line)
+		}
+		specs = append(specs, spec)
+	}
+	filters = append(filters, "-Ptestdash.cucumberFeatures="+strings.Join(specs, ","))
+	if !inSuite[""] {
+		// Cucumber's engine runs the features cucumber.features names itself too, not only in the suite
+		filters = append(filters, "-Ptestdash.cucumberInSuite=true")
+	}
 	return filters
+}
+
+// ClassOf is the class an entry runs in: its own, or for a test from a file, the class above it that runs it, as
+// a Cucumber suite.
+func (t *TestTask) ClassOf(e *Entry) string {
+	for e.ClassName == "" && e.Parent != "" {
+		e = t.entry(e.Parent)
+	}
+	return e.ClassName
+}
+
+// entry is the entry with an id, or an empty one.
+func (t *TestTask) entry(id string) *Entry {
+	if len(t.byID) != len(t.Entries) {
+		t.byID = make(map[string]*Entry, len(t.Entries))
+		for _, e := range t.Entries {
+			t.byID[e.ID] = e
+		}
+	}
+	if e := t.byID[id]; e != nil {
+		return e
+	}
+	return &Entry{}
 }
 
 // BuildRoot is the nearest directory up from start with a Gradle wrapper, or "".
@@ -330,6 +418,13 @@ func deref(s *string) string {
 	return *s
 }
 
+func derefInt(n *int) int {
+	if n == nil {
+		return 0
+	}
+	return *n
+}
+
 func orNil(s string) *string {
 	if s == "" {
 		return nil
@@ -354,8 +449,9 @@ func MatchTests(task *TestTask, patterns []string) map[string]bool {
 		if !e.IsLeaf() {
 			continue
 		}
-		candidates := []string{e.ClassName, e.ClassName + "." + e.Method}
-		shortName := e.ClassName[strings.LastIndex(e.ClassName, ".")+1:]
+		className := task.ClassOf(e)
+		candidates := []string{className, className + "." + e.Method}
+		shortName := className[strings.LastIndex(className, ".")+1:]
 		for i, matcher := range matchers {
 			names := candidates
 			if simple[i] {

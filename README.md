@@ -25,7 +25,8 @@ One screen, in three panels, with the run along the top.
 and a badge (ready, running, passed or failed). A line under it fills as tests finish, green while all is well
 and red once one fails. Click the task to choose another.
 
-**1 · Tests** is the task's tests by class, including `@Nested` classes and parameterised tests, each with its
+**1 · Tests** is the task's tests by class, including `@Nested` classes, parameterised tests and Cucumber features
+(their rules and scenario outlines too), each with its
 result and time from the last run. The first row, *All tests*, is the run as a whole, and while a run goes it is its *Overview*. `space` selects a test or
 a class (`●` marks what is selected, `◐` a class partly selected), and `enter` or `r` runs the selection. With nothing selected, `enter` runs the
 test or class under the cursor and `r` runs everything. `/` filters by name (case, spaces and punctuation ignored) and `s` shows
@@ -199,7 +200,9 @@ an optional `service`, as testdash saves them.
 Gradle init script (`internal/gradle/junit/testdash.init.gradle`) adds a `testdashDiscover` task that compiles
 each Test task's tests and discovers them (`internal/gradle/junit/Discover.java`) without running them or the
 Test task's other dependencies. The result is cached, so the picker opens at once and refreshes in the
-background. A selection becomes `--tests` filters; a whole class also selects its `@Nested` classes.
+background. A selection becomes `--tests` filters; a whole class also selects its `@Nested` classes. Cucumber's
+scenarios, which `--tests` cannot name, run through their JUnit Platform suite with Cucumber's `cucumber.features`
+set to their feature files and lines, and the cucumber engine left out on its own, as it would run them again.
 
 **Progress** comes from a JUnit listener (`internal/gradle/junit/TestdashListener.java`) the same init script
 puts on every Test task, without changing the build. Both are embedded in the binary, compiled once against JUnit

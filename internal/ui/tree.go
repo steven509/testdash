@@ -115,7 +115,7 @@ func (t *testTree) computeVisible(m *Model) map[string]bool {
 				kids = true
 			}
 		}
-		classMatch := e.Kind == "class" && needle != "" && strings.Contains(searchable(e.ClassName), needle)
+		classMatch := e.Kind == "class" && needle != "" && strings.Contains(searchable(e.ClassName+" "+e.Name), needle)
 		own := e.IsLeaf() && t.wanted(m, e) && (needle == "" || strings.Contains(searchable(e.Name), needle) ||
 			strings.Contains(searchable(e.ClassName), needle))
 		if !own && !kids && !classMatch {
