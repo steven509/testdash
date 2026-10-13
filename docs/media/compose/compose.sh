@@ -18,7 +18,7 @@ captions=(
   "Pick the tests to run|Every class, nested class and parameterised test in your build, with a filter to find them"
   "Watch the run, live|Progress, a timeline of every class, and activity from every service the tests start"
   "See why a test failed|Its stack trace, and every request, query, message and log line while it ran"
-  "Follow every service|Your app's logs, WireMock's requests and closest stubs, Kafka messages, SQL and MongoDB queries"
+  "Follow every service|Your app's logs, WireMock's requests and closest stubs, Kafka messages, SQL, MongoDB and Redis"
   "Make it yours|Accent colours, Nerd Font icons and more, saved for next time"
 )
 speed=(1 1.5 1 1 1) # the run itself plays faster

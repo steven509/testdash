@@ -40,3 +40,7 @@ Down
 Sleep 1.8s
 Down
 Sleep 1.8s
+Down
+Sleep 2.4s
+Down
+Sleep 2.4s
