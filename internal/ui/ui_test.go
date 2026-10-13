@@ -394,8 +394,29 @@ func TestSQLShowsFormattedThenRaw(t *testing.T) {
 	}
 }
 
+func TestPostgresQueryShowsItsTimeAndParameters(t *testing.T) {
+	m := testModel(t)
+	service := services.NewService("postgres", "postgres", "postgres:16")
+	m.Update(services.Added{Service: service})
+	view := m.serviceEntry(service).view.(*dbView)
+	m.Update(queriesMsg{view: view, batch: []databases.Query{{At: time.Now(), Connection: "115", Kind: "Execute",
+		Text: "SELECT id FROM orders WHERE customer_id = $1", Params: "$1 = '42'", Millis: "0.120"}}})
+	m.serviceList.selectEntry(m, m.serviceEntry(service))
+	m.setFocus(m.serviceList)
+	m.setFocus(view.table)
+	s := screen(m)
+	for _, want := range []string{"0.120 ms", "parameters", "$1 = '42'", "WHERE"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("a prepared statement shows how long it took and its parameters; %q is missing:\n%s", want, s)
+		}
+	}
+	if got := highlightSQL("SELECT 1 WHERE id = $1", "postgres"); !strings.Contains(got, style.PinkText.Render("$1")) {
+		t.Errorf("a Postgres parameter is coloured: %q", got)
+	}
+}
+
 func TestHighlightSQL(t *testing.T) {
-	got := highlightSQL("SELECT price FROM products WHERE price > 199.00 AND sku = ?")
+	got := highlightSQL("SELECT price FROM products WHERE price > 199.00 AND sku = ?", "mariadb")
 	if !strings.Contains(got, style.AccentBold.Render("SELECT")) || !strings.Contains(got, style.PinkText.Render("?")) {
 		t.Errorf("keywords and placeholders have their colours: %q", got)
 	}

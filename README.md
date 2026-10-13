@@ -198,7 +198,10 @@ are not logged), as root, with the password from the container's environment. Mo
 2 on every database as it appears, with a 64MB `system.profile`, and one `mongosh` prints new entries. Both are
 switched on over a connection to the server that serves the tests, not the temporary one the images run their
 init scripts on, so queries made before that (migrations at startup, say) are missed. MongoDB needs `mongosh`,
-which its images have from 6.0. SQL is laid out by [sql-formatter](https://github.com/sql-formatter-org/sql-formatter)
+which its images have from 6.0. Postgres gets `log_min_duration_statement = 0` and a line prefix of the time and
+process id with `ALTER SYSTEM` and a reload, and testdash reads each statement, with its parameters and how long
+it took, from the container's log; once the server has the settings they are reset in its data directory, so a
+database kept in a volume stops logging when it next restarts. SQL is laid out by [sql-formatter](https://github.com/sql-formatter-org/sql-formatter)
 in the database's dialect, run in [goja](https://github.com/dop251/goja), and coloured by
 [chroma](https://github.com/alecthomas/chroma). `c` copies with the system's clipboard command (`pbcopy`,
 `wl-copy`, `xclip`, `xsel` or `clip.exe`), or over SSH with the terminal's own clipboard (OSC 52).

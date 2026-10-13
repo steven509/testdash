@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"regexp"
 	"strings"
 
 	"github.com/alecthomas/chroma/v2"
@@ -10,17 +11,23 @@ import (
 )
 
 var (
-	sqlLexer  = chroma.Coalesce(lexers.Get("mysql"))
-	jsonLexer = chroma.Coalesce(lexers.Get("json"))
+	mysqlLexer    = chroma.Coalesce(lexers.Get("mysql"))
+	postgresLexer = chroma.Coalesce(lexers.Get("postgresql"))
+	jsonLexer     = chroma.Coalesce(lexers.Get("json"))
+	parameter     = regexp.MustCompile(`^(\?|\$\d+)$`)
 )
 
-// highlightSQL colours a query's parts by what chroma's MySQL lexer reads them as.
-func highlightSQL(query string) string {
-	return highlight(sqlLexer, query, func(tokens []chroma.Token, i int) style.Style {
+// highlightSQL colours a query's parts by what chroma's lexer for the database reads them as.
+func highlightSQL(query, kind string) string {
+	lexer := mysqlLexer
+	if kind == "postgres" {
+		lexer = postgresLexer
+	}
+	return highlight(lexer, query, func(tokens []chroma.Token, i int) style.Style {
 		token := tokens[i]
 		t := token.Type
 		switch {
-		case token.Value == "?":
+		case parameter.MatchString(token.Value):
 			return style.PinkText
 		case t.InCategory(chroma.Comment):
 			return style.Dim
