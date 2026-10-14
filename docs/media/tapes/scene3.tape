@@ -21,4 +21,6 @@ Sleep 1.5s
 Type "]"
 Sleep 1.6s
 Type "]"
+Sleep 100ms
+Type "]"
 Sleep 2s
