@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image/color"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -156,20 +157,135 @@ func (m *Model) profileChart(width, height int) string {
 		return b.String()
 	}
 	var all [][]chartRow
-	rows := 0
+	var stats [][]string
+	rows, statLines, now := 0, 0, time.Now()
 	for _, entry := range apps {
 		sampling := entry.profile.cancel != nil && entry.svc.State() == "running"
 		all = append(all, profileRows(entry.profile, grid, sampling))
-		rows += len(all[len(all)-1])
+		stats = append(stats, profileStats(entry.profile, sampling, now, width))
+		rows, statLines = rows+len(all[len(all)-1]), statLines+len(stats[len(stats)-1])+1
 	}
-	each := max(1, (height-4-len(apps))/max(1, rows)) // the lines each chart may have, under the headings, over the axis and keys
+	room := height - 4 - len(apps) // under the headings, over the axis and keys
+	if (room-statLines)/max(1, rows) < 2 {
+		stats, statLines = make([][]string, len(apps)), 0 // the charts come first
+	}
+	each := max(1, (room-statLines)/max(1, rows)) // the lines each chart may have
 	for i, entry := range apps {
-		b.WriteString(style.Bold.Render(ic.app+" "+entry.svc.Key) + "\n")
+		b.WriteString(style.Bold.Render(ic.app+" "+entry.svc.Key) + style.Muted.Render(profileAbout(entry.profile, now)) + "\n")
+		if len(stats[i]) > 0 {
+			b.WriteString(strings.Join(stats[i], "\n") + "\n\n")
+		}
 		chartRows(&b, all[i], each*len(all[i]), grid)
 	}
 	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + grid.axis() + "\n")
 	b.WriteString(style.Dim.Render("p stops profiling · d asks the JVM for a thread dump, into its log") + "\n")
 	return b.String()
+}
+
+// profileAbout says beside an application's name which JVM it runs and for how long it has run.
+func profileAbout(p *appProfile, now time.Time) string {
+	if len(p.jvm) == 0 {
+		return ""
+	}
+	last := p.jvm[len(p.jvm)-1]
+	about := []string{last.VM}
+	if !last.Started.IsZero() {
+		if p.cancel == nil || now.Sub(last.At) > 3*profile.JVMEvery {
+			now = last.At // no longer sampled, so as of its last sample
+		}
+		about = append(about, "up "+now.Sub(last.Started).Round(time.Second).String())
+	}
+	return "  " + strings.Join(slices.DeleteFunc(about, func(s string) bool { return s == "" }), " · ")
+}
+
+// profileStats sum up an application under its name, adding to its charts' totals: what its JVM runs, what its
+// heap keeps and what it allocates, its collections, metaspace and classes, threads, safepoints and compiles, and
+// its container's memory, processes and I/O. Each line is the width; a long one is cut.
+func profileStats(p *appProfile, sampling bool, now time.Time, width int) []string {
+	var lines []string
+	line := func(label string, parts ...string) {
+		parts = slices.DeleteFunc(parts, func(s string) bool { return s == "" })
+		if len(parts) > 0 {
+			lines = append(lines, fit(style.Muted.Render(fit(" "+label, activityLabelWidth, true))+" "+
+				strings.Join(parts, style.Dim.Render(" · ")), width, true))
+		}
+	}
+	var last profile.JVM
+	if len(p.jvm) > 0 {
+		last = p.jvm[len(p.jvm)-1]
+		line("Runs", last.Command, last.Options)
+		kept := ""
+		if last.EdenCapacity > 0 && last.GCs() > 0 {
+			kept = sizeLabel(last.HeapUsed-last.EdenUsed) + " kept after collections"
+		}
+		allocated := ""
+		if last.Allocated > 0 {
+			allocated = bytesLabel(last.Allocated) + " allocated"
+			if rate := allocationRate(p.jvm); sampling && rate >= 0 {
+				allocated += ", " + bytesLabel(int64(rate)) + "/s now"
+			}
+		}
+		line("Heap", kept, allocated)
+		gcs := []string{last.Collector, number(int(last.YoungGCs)) + " young, " + last.YoungGCTime.Round(time.Millisecond).String(), "no full"}
+		if last.OldGCs > 0 {
+			gcs[2] = style.Yellow.Render(number(int(last.OldGCs)) + " full, " + last.OldGCTime.Round(time.Millisecond).String())
+		}
+		if last.ConcurrentCycles > 0 {
+			gcs = append(gcs, count(int(last.ConcurrentCycles), "concurrent cycle"))
+		}
+		if up := last.At.Sub(last.Started); !last.Started.IsZero() && up > 0 {
+			share := float64(last.GCTime()) / float64(up) * 100
+			overhead := fmt.Sprintf("%.1f%% of its time", share)
+			if share >= 10 || last.GCTimeLimitExceeded {
+				overhead = style.Yellow.Render(overhead)
+			}
+			gcs = append(gcs, overhead)
+		}
+		if last.LastCause != "" && last.LastCause != "No GC" {
+			gcs = append(gcs, "last: "+last.LastCause)
+		}
+		line("Collections", gcs...)
+		line("Metaspace", sizeLabel(last.MetaspaceUsed)+" of "+sizeLabel(last.MetaspaceCommitted),
+			count(int(last.ClassesLoaded), "class", "classes")+" loaded, "+number(int(last.ClassesUnloaded))+" unloaded")
+		line("Threads", count(int(last.DaemonThreads), "daemon")+", at most "+number(int(last.Peak))+" live, "+
+			number(int(last.ThreadsStarted))+" started",
+			count(int(last.Safepoints), "safepoint")+", "+last.SafepointTime.Round(time.Millisecond).String(),
+			count(int(last.Compiles), "method")+" compiled")
+	}
+	if len(p.usage) > 0 {
+		u := p.usage[len(p.usage)-1]
+		memory := ""
+		if u.MemoryLimit > 0 {
+			memory = fmt.Sprintf("%.0f%% of its memory", float64(u.Memory)/float64(u.MemoryLimit)*100)
+		}
+		beyond := ""
+		if outside := u.Memory - last.HeapCommitted - last.MetaspaceCommitted; len(p.jvm) > 0 && outside > 0 {
+			beyond = "about " + sizeLabel(outside) + " beyond the heap and metaspace"
+		}
+		line("Container", memory, beyond, count(u.Processes, "process", "processes"))
+		line("I/O", "network "+bytesLabel(u.NetIn)+" in, "+bytesLabel(u.NetOut)+" out",
+			"disk "+bytesLabel(u.DiskRead)+" read, "+bytesLabel(u.DiskWritten)+" written")
+	}
+	return lines
+}
+
+// allocationRate is how fast the newest JVM allocates, in bytes a second, over its last ten seconds of samples:
+// -1 without two samples of it.
+func allocationRate(samples []profile.JVM) float64 {
+	last := samples[len(samples)-1]
+	from := -1
+	for i := len(samples) - 2; i >= 0; i-- {
+		s := samples[i]
+		if !s.Started.Equal(last.Started) || last.At.Sub(s.At) > 10*time.Second {
+			break
+		}
+		from = i
+	}
+	if from < 0 {
+		return -1
+	}
+	first := samples[from]
+	return float64(last.Allocated-first.Allocated) / last.At.Sub(first.At).Seconds()
 }
 
 // profileRows chart an application's samples on a grid: the highest of each measure in each column, and the time
@@ -274,6 +390,17 @@ func (g activityGrid) holdsOn(newest time.Time) bool {
 	return !newest.Before(g.to)
 }
 
+// bytesLabel is a size in the unit it reads best in: bytes, KiB, MiB or GiB.
+func bytesLabel(bytes int64) string {
+	switch {
+	case bytes >= 1<<20:
+		return sizeLabel(bytes)
+	case bytes >= 1<<10:
+		return fmt.Sprintf("%d KiB", bytes>>10)
+	}
+	return fmt.Sprintf("%d B", bytes)
+}
+
 // sizeLabel is a size in MiB, or GiB from one.
 func sizeLabel(bytes int64) string {
 	if bytes >= 1<<30 {
@@ -305,6 +432,9 @@ func (m *Model) testResources(id string, width int) string {
 		}
 		if before, after, ok := bracket(p.jvm, w); ok {
 			parts = append(parts, "heap "+sizeLabel(before.HeapUsed)+" → "+sizeLabel(after.HeapUsed))
+			if allocated := after.Allocated - before.Allocated; allocated > 0 && after.Started.Equal(before.Started) {
+				parts = append(parts, bytesLabel(allocated)+" allocated")
+			}
 			if gcs := after.GCs() - before.GCs(); gcs > 0 {
 				parts = append(parts, count(int(gcs), "collection")+", "+
 					(after.GCTime()-before.GCTime()).Round(time.Millisecond).String())

@@ -1918,10 +1918,15 @@ func TestProfile(t *testing.T) {
 	for i := 0; i < 8; i++ {
 		at := started.Add(time.Duration(i) * time.Second)
 		m.Update(profileMsg{entry: entry, usage: &profile.Usage{At: at, CPU: float64(20 + 10*i), Memory: int64(200+i) * mib,
-			MemoryLimit: 4 << 30}})
+			MemoryLimit: 4 << 30, NetIn: 5400, NetOut: 2 * mib, DiskRead: 934 << 10, Processes: 41}})
 		m.Update(profileMsg{entry: entry, jvm: &profile.JVM{At: at, HeapUsed: int64(100+20*i) * mib,
 			HeapCommitted: 512 * mib, HeapMax: 1 << 30, YoungGCs: int64(i / 2), YoungGCTime: time.Duration(i/2) * 15 * time.Millisecond,
-			Threads: int64(30 + i)}})
+			Threads: int64(30 + i), VM: "OpenJDK 64-Bit Server VM 21.0.4", Started: started.Add(-50 * time.Second),
+			Command: "com.example.shop.ShopApplication", Options: "-Xmx1g", Collector: "GarbageFirst",
+			EdenUsed: 40 * mib, EdenCapacity: 64 * mib, Allocated: int64(30*i) * mib, ConcurrentCycles: 2,
+			LastCause: "G1 Evacuation Pause", MetaspaceUsed: 90 * mib, MetaspaceCommitted: 96 * mib, ClassesLoaded: 15000,
+			ClassesUnloaded: 20, DaemonThreads: 20, Peak: 40, ThreadsStarted: 60, Safepoints: 80,
+			SafepointTime: 120 * time.Millisecond, Compiles: 5000}})
 	}
 	s := screen(m)
 	for _, want := range []string{"PROFILE  the whole run", "shop", "CPU", "peak 90%", "Memory", "207 MiB of 4 GiB",
@@ -1930,12 +1935,25 @@ func TestProfile(t *testing.T) {
 			t.Errorf("the Profile tab lacks %q:\n%s", want, s)
 		}
 	}
+	for _, want := range []string{"shop  OpenJDK 64-Bit Server VM 21.0.4 · up 1m",
+		"Runs              com.example.shop.ShopApplication · -Xmx1g",
+		"Heap              200 MiB kept after collections · 210 MiB allocated, 30 MiB/s now",
+		"Collections       GarbageFirst · 3 young, 45ms · no full · 2 concurrent cycles · 0.1% of its time · last: G1",
+		"Metaspace         90 MiB of 96 MiB · 15,000 classes loaded, 20 unloaded",
+		"Threads           20 daemons, at most 40 live, 60 started · 80 safepoints, 120ms · 5,000 methods compiled",
+		"Container         5% of its memory · 41 processes",
+		"I/O               network 5 KiB in, 2 MiB out · disk 934 KiB read, 0 B written"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the Profile tab sums up the application, lacking %q:\n%s", want, s)
+		}
+	}
 
 	m.progress.States["t1"] = &progress.State{Status: "passed", StartedAt: started.Add(3 * time.Second).UnixMilli(),
 		FinishedAt: started.Add(5 * time.Second).UnixMilli()}
 	m.version++
 	if used := ansi.Strip(m.testResources("t1", 120)); !strings.Contains(used, "CPU 60% on average, 80% at most") ||
-		!strings.Contains(used, "heap 140 MiB → 220 MiB") || !strings.Contains(used, "2 collections, 30ms") {
+		!strings.Contains(used, "heap 140 MiB → 220 MiB") || !strings.Contains(used, "120 MiB allocated") ||
+		!strings.Contains(used, "2 collections, 30ms") {
 		t.Errorf("a test's details say what the application used while it ran:\n%s", used)
 	}
 }
