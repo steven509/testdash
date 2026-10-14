@@ -19,6 +19,7 @@ import (
 	"github.com/steven509/testdash/internal/kafka"
 	"github.com/steven509/testdash/internal/logformat"
 	"github.com/steven509/testdash/internal/noise"
+	"github.com/steven509/testdash/internal/profile"
 	"github.com/steven509/testdash/internal/progress"
 	"github.com/steven509/testdash/internal/services"
 	"github.com/steven509/testdash/internal/settings"
@@ -1890,5 +1891,65 @@ func TestLiveLeavesOutNoise(t *testing.T) {
 	press(m, "n")
 	if s := screen(m); strings.Contains(s, "GET /health") {
 		t.Errorf("n again leaves it out:\n%s", s)
+	}
+}
+
+func TestProfile(t *testing.T) {
+	m := testModel(t)
+	started := time.Now().Add(-10 * time.Second).Truncate(time.Second) // as the tests' times are in milliseconds
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	runAll(finishRun(t, m, started))
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	m.inspector.overview.setActive("profile")
+	screen(m)
+	press(m, "3")
+	if s := screen(m); !strings.Contains(s, "PROFILE  off") || !strings.Contains(s, "p  Start profiling") {
+		t.Fatalf("the Profile tab says profiling is off, and how to start it:\n%s", s)
+	}
+	press(m, "p")
+	if saved, err := settings.Load(); err != nil || !m.prefs.Profile || !saved.Profile {
+		t.Fatalf("p starts profiling and keeps it on: %v %v", m.prefs.Profile, err)
+	}
+
+	entry := m.serviceEntry(app)
+	entry.profile = &appProfile{cancel: func() {}} // as followProfile starts it, sampling with docker
+	mib := int64(1 << 20)
+	for i := 0; i < 8; i++ {
+		at := started.Add(time.Duration(i) * time.Second)
+		m.Update(profileMsg{entry: entry, usage: &profile.Usage{At: at, CPU: float64(20 + 10*i), Memory: int64(200+i) * mib,
+			MemoryLimit: 4 << 30}})
+		m.Update(profileMsg{entry: entry, jvm: &profile.JVM{At: at, HeapUsed: int64(100+20*i) * mib,
+			HeapCommitted: 512 * mib, HeapMax: 1 << 30, YoungGCs: int64(i / 2), YoungGCTime: time.Duration(i/2) * 15 * time.Millisecond,
+			Threads: int64(30 + i)}})
+	}
+	s := screen(m)
+	for _, want := range []string{"PROFILE  the whole run", "shop", "CPU", "peak 90%", "Memory", "207 MiB of 4 GiB",
+		"Heap", "240 MiB of 512 MiB, max 1 GiB", "GC", "3 collections, 45ms", "Threads", "37 live"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the Profile tab lacks %q:\n%s", want, s)
+		}
+	}
+
+	m.progress.States["t1"] = &progress.State{Status: "passed", StartedAt: started.Add(3 * time.Second).UnixMilli(),
+		FinishedAt: started.Add(5 * time.Second).UnixMilli()}
+	m.version++
+	if used := ansi.Strip(m.testResources("t1", 120)); !strings.Contains(used, "CPU 60% on average, 80% at most") ||
+		!strings.Contains(used, "heap 140 MiB → 220 MiB") || !strings.Contains(used, "2 collections, 30ms") {
+		t.Errorf("a test's details say what the application used while it ran:\n%s", used)
+	}
+}
+
+func TestProfileHoldsMeasuresBetweenSamples(t *testing.T) {
+	sampled := []bool{false, true, false, false, true, false}
+	heap := []int{0, 100, 0, 0, 140, 0}
+	holdBetween(sampled, false, heap)
+	if fmt.Sprint(heap) != "[0 100 100 100 140 0]" {
+		t.Errorf("a measure holds from one sample to the next, not before the first or after the last: %v", heap)
+	}
+	threads := []int{0, 30, 0, 0, 31, 0}
+	holdBetween(sampled, true, threads)
+	if fmt.Sprint(threads) != "[0 30 30 30 31 31]" {
+		t.Errorf("a measure that goes on past the grid holds to its end: %v", threads)
 	}
 }

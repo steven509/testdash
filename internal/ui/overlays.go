@@ -58,6 +58,11 @@ func (m *Model) commands() []command {
 		{"Choose the test task", "Pick another of the build's test tasks", func() tea.Cmd { m.openTasks(); return nil }},
 		{"List the tests again", "Rediscover the build's tests", m.discover},
 		{"Gradle arguments", "What every run gives Gradle, as -Dname=value", func() tea.Cmd { m.openArgs(); return nil }},
+		{map[bool]string{false: "Start profiling", true: "Stop profiling"}[m.prefs.Profile],
+			"The application's CPU, memory, heap and collections, in the run's Profile tab", func() tea.Cmd {
+				return m.setProfiling(!m.prefs.Profile)
+			}},
+		{"Thread dump", "Ask the application's JVM for one, into its log", m.threadDump},
 		{"Show Gradle's output", "What Gradle printed", func() tea.Cmd {
 			m.serviceList.cursor = 0
 			m.setFocus(m.serviceList)
@@ -285,8 +290,9 @@ var helpSections = []struct {
 	{"Tests", [][2]string{{"↑ ↓", "move"}, {"← →", "collapse, expand"}, {"space", "select"}, {"a", "select all shown"}, {"u", "unselect the passed"},
 		{"enter", "run the selection, or this test or class"}, {"/", "filter by name"}, {"s", "all, failed, not passed, flaky"},
 		{"c", "copy a failed test's failure"}, {"esc", "clear"}}},
-	{"The run's details", [][2]string{{"[ ]", "overview, Live, Activity, Classes"}, {"enter", "Live: open in its service"},
+	{"The run's details", [][2]string{{"[ ]", "overview, Live, Activity, Classes, Profile"}, {"enter", "Live: open in its service"},
 		{"/", "Live: filter"}, {"n", "Live: show the noise too"}, {"t", "Live: its trace everywhere"}, {"+ −", "activity: a longer, shorter window"},
+		{"p d", "Profile: profiling, thread dump"},
 		{"esc", "back to the overview"}}},
 	{"A test's details", [][2]string{{"↑ ↓", "events while it ran"}, {"enter", "open the event in its service"},
 		{"c", "copy: curl, query, command, payload"}, {"t", "by trace, or in time order"}, {"tab", "the event, the stack trace"}, {"esc", "back to the tests"}}},

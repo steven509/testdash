@@ -121,6 +121,17 @@ var settingItems = []settingItem{
 			i := slices.Index(activityWindows, int(s.Window()/time.Second))
 			s.ActivityWindow = activityWindows[(max(0, i)+step+len(activityWindows))%len(activityWindows)]
 		}},
+	{section: "Runs", label: "Profiling",
+		help: "Samples the application while tests run: its container's CPU and memory, and for a JVM, its heap, " +
+			"garbage collection and threads. The run's Profile tab charts them, and a test's details say what it " +
+			"used. It costs a docker exec every two seconds.",
+		value: func(s settings.Settings) string {
+			if s.Profile {
+				return "On"
+			}
+			return "Off"
+		},
+		change: func(s *settings.Settings, _ int) { s.Profile = !s.Profile }},
 	{section: "Runs", label: "Notifications",
 		help: "A desktop notification when a run ends, through your terminal (iTerm2, WezTerm, " +
 			"Ghostty, kitty, Windows Terminal and more): while you are in another window, always, or never.",
@@ -393,6 +404,9 @@ func (m *Model) applySettings(s settings.Settings) {
 	}
 	if !slices.Equal(old.Noise, s.Noise) {
 		m.setNoise()
+	}
+	if old.Profile != s.Profile {
+		m.profilingChanged()
 	}
 	m.tree.flatDirty = true
 	m.version++

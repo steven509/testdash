@@ -22,8 +22,8 @@ const (
 )
 
 func newOverviewTabs() tabbedView {
-	return tabbedView{tabIDs: []string{"overview", "live", "activity", "classes"},
-		tabLabels: []string{"Overview", "Live", "Activity", "Classes"}}
+	return tabbedView{tabIDs: []string{"overview", "live", "activity", "classes", "profile"},
+		tabLabels: []string{"Overview", "Live", "Activity", "Classes", "Profile"}}
 }
 
 // overviewHeadings are the overview's section headings that open a tab of their own.
@@ -50,6 +50,8 @@ func (in *inspector) renderOverview(m *Model, r rect) []string {
 		in.card.set("activity", m.activityChart(rest.w, rest.h))
 	case "classes":
 		in.card.set("classes", m.classTable(rest.w, true))
+	case "profile":
+		in.card.set("profile", m.profileChart(rest.w, rest.h))
 	default:
 		in.card.set("run", m.dashboard(rest.w, rest.h))
 	}
@@ -105,6 +107,12 @@ func (in *inspector) overviewLevels(m *Model, focus any) []level {
 		return in.live.levels(m, focus, tabs)
 	}
 	shown := func() bool { return m.running() && in.overview.activeID() != "classes" }
+	if in.overview.activeID() == "profile" {
+		tabs = append(tabs,
+			bind("p", map[bool]string{false: "Start profiling", true: "Stop profiling"}[m.prefs.Profile],
+				func() tea.Cmd { return m.setProfiling(!m.prefs.Profile) }),
+			bind("d", "Thread dump", m.threadDump).when(func() bool { return m.prefs.Profile }))
+	}
 	tabs = append(tabs,
 		bind("+ =", "Activity window", func() tea.Cmd { return m.stepActivityWindow(1) }).shown("+ −").when(shown),
 		bind("-", "Shorter activity window", func() tea.Cmd { return m.stepActivityWindow(-1) }).hidden().when(shown))
@@ -287,18 +295,41 @@ func (m *Model) activityChart(width, height int) string {
 	if m.activityChartKey == key {
 		return m.activityChartText
 	}
-	rows := m.activityRows(grid)
-	each, gap := (height-2)/max(1, len(rows)), false // each source's lines, under the heading and over the axis
+	var b strings.Builder
+	b.WriteString(section("Activity", width, grid.about()) + "\n")
+	var rows []chartRow
+	for _, row := range m.activityRows(grid) {
+		rows = append(rows, chartRow{activityRow: row})
+	}
+	chartRows(&b, rows, height-2, grid)
+	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + grid.axis() + "\n")
+	m.activityChartKey, m.activityChartText = key, b.String()
+	return m.activityChartText
+}
+
+// chartRow is a row of a chart at full size: the counts of a source, or for a measure, as of memory, the highest
+// in each column, with peak to say what the highest stands for.
+type chartRow struct {
+	activityRow
+	peak func(n int) string
+}
+
+// chartRows draws a bar chart for each row, as tall as the height leaves room for, each labelled with what its
+// top stands for: a rate, unless the row says otherwise.
+func chartRows(b *strings.Builder, rows []chartRow, height int, grid activityGrid) {
+	each, gap := height/max(1, len(rows)), false
 	tall := max(1, each)
 	if each >= 3 {
 		tall, gap = min(8, each-1), true
 	}
-	var b strings.Builder
-	b.WriteString(section("Activity", width, grid.about()) + "\n")
 	for _, row := range rows {
 		var top []string // what the top of the chart stands for, beside it
 		if peak := slices.Max(row.counts); peak > 0 {
-			top = append(top, "peak "+rate(peak, grid.step))
+			label := rate(peak, grid.step)
+			if row.peak != nil {
+				label = row.peak(peak)
+			}
+			top = append(top, "peak "+label)
 		}
 		for i, line := range style.Chart(row.counts, tall, row.colorOf) {
 			heading, side := strings.Repeat(" ", activityLabelWidth), []string(nil)
@@ -314,9 +345,6 @@ func (m *Model) activityChart(width, height int) string {
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString(strings.Repeat(" ", activityLabelWidth+1) + grid.axis() + "\n")
-	m.activityChartKey, m.activityChartText = key, b.String()
-	return m.activityChartText
 }
 
 const activitySideWidth = 30 // beside the activity at full size: the totals, and the peak where a chart is one line

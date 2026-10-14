@@ -27,6 +27,8 @@ type Settings struct {
 	// ActivityWindow is how many seconds of a run that goes on the activity shows, the last of them; once it is
 	// over, it shows all of it.
 	ActivityWindow int `json:"activityWindow"`
+	// Profile samples the applications while tests run: CPU and memory, and a JVM's heap, collections and threads.
+	Profile bool `json:"profile"`
 	// Notify asks the terminal for a desktop notification when a run ends: away (while the terminal is in the
 	// background), always or off.
 	Notify string `json:"notify"`

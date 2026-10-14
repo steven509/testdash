@@ -404,6 +404,9 @@ func (m *Model) testCard(entry *catalog.Entry, width int) string {
 	if past := m.testHistory(entry.ID, width); past != "" {
 		b.WriteString("\n" + past + "\n")
 	}
+	if used := m.testResources(entry.ID, width); used != "" {
+		b.WriteString("\n" + used + "\n")
+	}
 	switch status {
 	case "idle", "absent":
 		b.WriteString("\n" + style.Muted.Render("Select it with ") + style.AccentBold.Render("space") +

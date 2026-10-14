@@ -127,6 +127,11 @@ heading, and `z` gives any of them the whole screen.
   the last 30 seconds, ending now at the right and moving left as it goes; `+` and `−` show from 10 seconds to
   5 minutes (kept in the settings). Once the run is over, it shows all of it.
 - *Classes* puts each test on the run's time line, under its class.
+- *Profile*, once profiling is on (`p` there, or the settings), charts the application while tests run: its
+  CPU and memory from `docker stats`, and for a JVM, its heap, garbage collection and threads, read from the
+  performance counters every JVM keeps (the file `jstat` reads), so there is nothing to set up, even on a
+  JRE-only image. A test's details then say what the application used while it ran: its CPU, how its heap
+  changed and what it collected. `d` asks the JVM for a thread dump, which it writes to its log.
 
 <p align="center">
   <img src="docs/images/live.png" width="880"
@@ -175,7 +180,7 @@ file is up, the dashboard says which container (or process) holds the port.
 |---|---|
 | Anywhere | `tab` next panel · `1` `2` `3` tests, services, details · `r` run the selection, or all · `F` run the failed tests (before a run, the last run's) · `x` stop (twice kills) · `z` zoom the details · `c` the run's whole command · `H` the runs before · `ctrl+t` test task · `ctrl+p` or `:` commands · `ctrl+s` settings · `?` keys · `q` quit, after asking · a right click offers what can be done with what is under it |
 | Tests | ↑/↓ move · ←/→ collapse, expand · `space` select · `a` select all shown · `u` unselect the tests that passed · `enter` run the selection, or with none, this test or class · `/` filter · `s` all, failed, not passed or flaky · Esc clears the filter, then the selection |
-| The run's details | `[` `]` or ←/→ the overview, Live, Activity and Classes tabs · Esc back to the overview · `+` `−` the activity's window while the run goes · Live: ↑/↓ a row, its details beside it · `enter` open it in its service · `/` filter · `c` copy it · `t` its trace everywhere · `n` show the noise · `N` hide things like it as noise |
+| The run's details | `[` `]` or ←/→ the overview, Live, Activity, Classes and Profile tabs · Esc back to the overview · `+` `−` the activity's window while the run goes · Live: ↑/↓ a row, its details beside it · `enter` open it in its service · `/` filter · `c` copy it · `t` its trace everywhere · `n` show the noise · `N` hide things like it as noise · Profile: `p` start or stop profiling · `d` thread dump |
 | A test's details | ↑/↓ the events while it ran · `enter` open the event in its service · `t` by trace or in time order · `c` copy it · `N` hide things like it as noise · `tab` the event, the stack trace · Esc back |
 | Logs | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · `n` show the noise · `N` hide what the filter finds as noise · ←/→ scroll sideways · Home/End |
 | Services | `[` `]` or ←/→ tabs · ↑/↓ a row, its details beside it · `n` show the noise · `N` hide things like the row as noise · `c` copy it · `t` every service to the row's trace, or every trace again · WireMock `u` unmatched only · Kafka `h` a message's headers or value, `enter` on a topic shows its messages · SQL `v` formatted or raw |

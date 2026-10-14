@@ -110,6 +110,7 @@ type svcEntry struct {
 	lines    *lineBuffer
 	problems int // warnings and errors logged this run, counted as lines arrive
 	view     view
+	profile  *appProfile // what profiling has sampled of an application
 }
 
 type Model struct {
@@ -1138,6 +1139,7 @@ func (m *Model) serviceAdded(service *services.Service) {
 	}
 	m.followNoise(entry)
 	m.svcs = append(m.svcs, entry)
+	m.followProfile(entry)
 	m.version++
 }
 
