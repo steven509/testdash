@@ -148,7 +148,9 @@ type Model struct {
 	logSimple     bool // every log shows a line's level and message only
 	logTime       bool
 	logWrap       bool
-	portConflict  string // why the run could not start its containers
+	portConflict  string   // why the run could not start its containers
+	jvmStopped    string   // why the test JVM stopped before its tests finished, as Gradle says
+	jvmStoppedIn  []string // the tests it stopped in
 	explained     map[string]bool
 	version       int // goes up whenever what a test's details show may have changed
 	activityKey   string
@@ -729,6 +731,7 @@ func (m *Model) launch(filters []string, picked map[string]bool) tea.Cmd {
 	m.runStarted, m.runFinished, m.exitCode = time.Now(), time.Time{}, 0
 	m.runFilters, m.stopRequested, m.runCommit, m.runDirty = filters, false, "", false
 	m.portConflict, m.explained = "", map[string]bool{}
+	m.jvmStopped, m.jvmStoppedIn = "", nil
 	m.progress = progress.New(m.opts.RunDir)
 	m.inRun = map[string]bool{}
 	m.index()
@@ -856,13 +859,18 @@ func (m *Model) explainPort(msg portHolderMsg) {
 func (m *Model) runDone(code int) tea.Cmd {
 	m.exitCode, m.runFinished = code, time.Now()
 	m.watcher.EndRun(m.runFinished)
-	cmd := tea.Batch(m.tick(), m.recordRun(code))
+	tick := m.tick() // what the test JVMs wrote last
+	m.abortUnfinished()
+	cmd := tea.Batch(tick, m.recordRun(code))
 	took := duration(m.runFinished.Sub(m.runStarted).Milliseconds())
 	summary := m.runSummary()
 	if code == 0 {
 		m.addOutput("passed in "+took, "green")
 		m.notify(fmt.Sprintf("%s passed in %s", count(summary.passed, "test"), took), "Passed", "success")
 		cmd = tea.Batch(cmd, m.notifyDesktop(fmt.Sprintf("%s passed in %s", count(summary.passed, "test"), took)))
+	} else if m.jvmStopped != "" {
+		m.addOutput(fmt.Sprintf("failed (exit %d) in %s: the test JVM stopped", code, took), "red")
+		m.notify("The test JVM stopped while "+someNames(m.jvmStoppedIn)+" ran", "Failed", "error")
 	} else {
 		m.addOutput(fmt.Sprintf("failed (exit %d) in %s", code, took), "red")
 		m.notify(fmt.Sprintf("%s of %s tests failed (exit %d)", number(summary.failed), number(summary.total), code),
@@ -877,6 +885,63 @@ func (m *Model) runDone(code int) tea.Cmd {
 		return tea.Batch(cmd, m.discover())
 	}
 	return cmd
+}
+
+// abortUnfinished ends the tests the run left running as aborted: their JVM stopped before they finished, as when
+// it ran out of memory or exited, or the run was stopped. Gradle's reason the JVM stopped goes with them.
+func (m *Model) abortUnfinished() {
+	if m.progress == nil {
+		return
+	}
+	reason := "The run was stopped while it ran"
+	if !m.stopRequested {
+		reason = m.testJVMStopReason()
+	}
+	ids := m.progress.Abort(nowMillis(), reason)
+	if m.stopRequested {
+		return
+	}
+	var tests []string
+	for _, id := range ids {
+		if entry := m.entries[id]; entry != nil && entry.IsLeaf() {
+			tests = append(tests, m.fullName(entry))
+		}
+	}
+	if len(tests) > 0 {
+		m.jvmStopped, m.jvmStoppedIn = reason, tests
+	}
+}
+
+// testJVMStopReason is why Gradle says a test JVM stopped, from its output, with an OutOfMemoryError it shows.
+func (m *Model) testJVMStopReason() string {
+	var process, oom string
+	for _, line := range m.output.all() {
+		text := strings.TrimLeft(strings.TrimSpace(cleanText(line.Text)), "> ") // Gradle nests its causes with >
+		switch {
+		case strings.HasPrefix(text, "Process 'Gradle Test Executor"):
+			process = text
+		case oom == "" && strings.Contains(text, "java.lang.OutOfMemoryError"):
+			oom = text
+		}
+	}
+	var reasons []string
+	for _, reason := range []string{oom, process} {
+		if reason != "" {
+			reasons = append(reasons, reason)
+		}
+	}
+	if len(reasons) == 0 {
+		return "The test JVM stopped before its tests finished"
+	}
+	return strings.Join(reasons, ". ")
+}
+
+// someNames are the first of some names, and how many more.
+func someNames(names []string) string {
+	if len(names) <= 2 {
+		return strings.Join(names, " and ")
+	}
+	return names[0] + " and " + count(len(names)-1, "other test")
 }
 
 func (m *Model) stop() {

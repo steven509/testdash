@@ -1953,3 +1953,42 @@ func TestProfileHoldsMeasuresBetweenSamples(t *testing.T) {
 		t.Errorf("a measure that goes on past the grid holds to its end: %v", threads)
 	}
 }
+
+func TestTheTestJVMStopping(t *testing.T) {
+	m := testModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	m.runStarted, m.runFinished = time.Now().Add(-5*time.Second), time.Time{}
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{}
+	at := m.runStarted.Add(time.Second).UnixMilli()
+	events := fmt.Sprintf(`{"event":"plan","at":1,"entries":[`+
+		`{"id":"t1","parent":"c1","kind":"test","className":"com.a.FooTest","methodName":"one","name":"one"},`+
+		`{"id":"t3","parent":"n1","kind":"test","className":"com.a.FooTest$Inner","methodName":"three","name":"three"},`+
+		`{"id":"t4","parent":"c2","kind":"test","className":"com.a.BarTest","methodName":"sign_up","name":"sign up"}]}
+{"event":"started","at":%[1]d,"id":"t1"}
+{"event":"finished","at":%[2]d,"id":"t1","status":"SUCCESSFUL"}
+{"event":"started","at":%[2]d,"id":"t3"}
+`, at, at+100)
+	if err := os.WriteFile(filepath.Join(m.opts.RunDir, "progress-1.jsonl"), []byte(events), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m.Update(tickMsg{})
+	m.Update(outputMsg{lines: []string{"* What went wrong:", "Execution failed for task ':test'.",
+		"> Test process encountered an unexpected problem.",
+		"   > Process 'Gradle Test Executor 5' finished with non-zero exit value 137 (this value may indicate that " +
+			"the process was terminated with the SIGKILL signal, which is often caused by the system running out of memory)"}})
+	m.Update(runDoneMsg{code: 1})
+	if m.status("t3") != "aborted" || !strings.Contains(m.state("t3").Message, "exit value 137") {
+		t.Errorf("the test the JVM stopped in is aborted, with Gradle's reason: %s %q", m.status("t3"), m.state("t3").Message)
+	}
+	if m.status("t1") != "passed" {
+		t.Errorf("a test that finished keeps its result: %s", m.status("t1"))
+	}
+	s := screen(m)
+	for _, want := range []string{"The test JVM stopped while FooTest › when inner › three ran", "out of memory",
+		"1 not run"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the overview lacks %q:\n%s", want, s)
+		}
+	}
+}

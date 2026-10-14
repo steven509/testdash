@@ -24,11 +24,19 @@ func (m *Model) dashboard(width, height int) string {
 	var b strings.Builder
 	b.WriteString(m.commandLine(width) + "\n\n")
 	counts := map[string]int{"passed": s.passed, "failed": s.failed, "skipped": s.skipped, "pending": s.left}
+	if !m.running() { // what is left once the run is over did not run
+		counts["idle"], counts["pending"] = counts["pending"], 0
+	}
 	b.WriteString(countLine(counts, s.total) + "\n")
 	b.WriteString(style.Bar(width, float64(s.done())/float64(max(1, s.total)), m.barColors(s)...) + "\n")
 	if m.portConflict != "" {
 		b.WriteString("\n" + style.Red.Render(ic.failed+" ") + style.BoldRed.Render("The run could not start its containers") + "\n")
 		b.WriteString(strings.Join(wrapLines(style.Muted.Render(m.portConflict), width-2), "\n") + "\n")
+	}
+	if m.jvmStopped != "" {
+		b.WriteString("\n" + style.Red.Render(ic.failed+" ") +
+			style.BoldRed.Render("The test JVM stopped while "+someNames(m.jvmStoppedIn)+" ran") + "\n")
+		b.WriteString(strings.Join(wrapLines(style.Muted.Render(m.jvmStopped), width-2), "\n") + "\n")
 	}
 	if m.running() {
 		b.WriteString("\n" + section("Now", width, "") + "\n")

@@ -180,6 +180,20 @@ func (p *Progress) apply(e event, changed map[string]bool) {
 	}
 }
 
+// Abort ends what is still running as aborted, with why, as when its JVM stopped before it finished, and returns
+// their ids.
+func (p *Progress) Abort(at int64, message string) []string {
+	var ids []string
+	for id, state := range p.States {
+		if state.Status == "running" {
+			state.Status, state.FinishedAt, state.Message = "aborted", at, message
+			ids = append(ids, id)
+		}
+	}
+	sort.Strings(ids)
+	return ids
+}
+
 // State is an entry's state, pending when the run has not said anything about it.
 func (p *Progress) State(id string) State {
 	if state := p.States[id]; state != nil {
