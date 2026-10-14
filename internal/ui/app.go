@@ -153,6 +153,7 @@ type Model struct {
 	jvmStopped    string   // why the test JVM stopped before its tests finished, as Gradle says
 	jvmStoppedIn  []string // the tests it stopped in
 	appsStopped   []string // applications whose containers stopped while tests ran, and why
+	outOfMemory   []appOutOfMemory
 	explained     map[string]bool
 	version       int // goes up whenever what a test's details show may have changed
 	activityKey   string
@@ -737,7 +738,7 @@ func (m *Model) launch(filters []string, picked map[string]bool) tea.Cmd {
 	m.runStarted, m.runFinished, m.exitCode = time.Now(), time.Time{}, 0
 	m.runFilters, m.stopRequested, m.runCommit, m.runDirty = filters, false, "", false
 	m.portConflict, m.explained = "", map[string]bool{}
-	m.jvmStopped, m.jvmStoppedIn, m.appsStopped = "", nil, nil
+	m.jvmStopped, m.jvmStoppedIn, m.appsStopped, m.outOfMemory = "", nil, nil, nil
 	m.progress = progress.New(m.opts.RunDir)
 	m.inRun = map[string]bool{}
 	m.index()
@@ -1280,6 +1281,49 @@ func (m *Model) appStopped(msg appStoppedMsg) {
 	m.version++
 }
 
+// appOutOfMemory is an application's JVM running out of memory while tests ran. It may go on running but no
+// longer answer, leaving its tests to wait until they time out.
+type appOutOfMemory struct {
+	entry  *svcEntry
+	at     time.Time
+	error  string   // as the JVM put it: java.lang.OutOfMemoryError: Java heap space
+	during []string // the tests running then
+}
+
+// ranOutOfMemory notes the first OutOfMemoryError of an application in a run, and says so.
+func (m *Model) ranOutOfMemory(entry *svcEntry, at time.Time, text string) {
+	for _, seen := range m.outOfMemory {
+		if seen.entry == entry {
+			return
+		}
+	}
+	if at.IsZero() {
+		at = time.Now()
+	}
+	oom := appOutOfMemory{entry: entry, at: at, error: "java.lang.OutOfMemoryError"}
+	if kind, ok := strings.CutPrefix(strings.TrimPrefix(cleanText(text), oom.error), ": "); ok && kind != "" {
+		oom.error += ": " + strings.TrimRight(fit(kind, 60, true), " ")
+	}
+	if m.progress != nil {
+		for id, state := range m.progress.States {
+			if entry := m.entries[id]; state.Status == "running" && entry != nil && entry.IsLeaf() {
+				oom.during = append(oom.during, m.fullName(entry))
+			}
+		}
+		sort.Strings(oom.during)
+	}
+	m.outOfMemory = append(m.outOfMemory, oom)
+	m.notifyFor(oom.String(), entry.svc.Key+" ran out of memory", "error", 20*time.Second)
+}
+
+func (oom appOutOfMemory) String() string {
+	text := oom.entry.svc.Key + " threw " + oom.error + " at " + clock(oom.at)
+	if len(oom.during) > 0 {
+		text += " while " + someNames(oom.during) + " ran"
+	}
+	return text + ". It may no longer answer, leaving its tests to wait until they time out; x stops the run."
+}
+
 func (m *Model) serviceLines(msg services.Lines) {
 	if msg.Gen == m.gen {
 		m.addServiceLines(m.serviceEntry(msg.Service), msg.Lines)
@@ -1293,6 +1337,9 @@ func (m *Model) addServiceLines(entry *svcEntry, lines []*logformat.Line) {
 	for _, line := range lines {
 		if line.IsLoggedProblem() {
 			entry.problems++
+		}
+		if _, after, found := strings.Cut(line.Text, "java.lang.OutOfMemoryError"); found && entry.svc.IsApp() && m.running() {
+			m.ranOutOfMemory(entry, line.At, "java.lang.OutOfMemoryError"+after)
 		}
 	}
 	entry.lines.add(lines...)

@@ -417,6 +417,14 @@ func (m *Model) testCard(entry *catalog.Entry, width int) string {
 	if used := m.testResources(entry.ID, width); used != "" {
 		b.WriteString("\n" + used + "\n")
 	}
+	if w := m.windowFor(entry.ID); w != nil {
+		for _, oom := range m.outOfMemory {
+			if w.holds(oom.at) {
+				b.WriteString("\n" + style.Red.Render(ic.failed+" ") + style.BoldRed.Render(oom.entry.svc.Key+" ran out of memory while it ran") +
+					"\n" + strings.Join(wrapLines(style.Muted.Render(oom.String()), width), "\n") + "\n")
+			}
+		}
+	}
 	switch status {
 	case "idle", "absent":
 		b.WriteString("\n" + style.Muted.Render("Select it with ") + style.AccentBold.Render("space") +

@@ -2126,3 +2126,34 @@ func TestTestEventsFollowTheNewest(t *testing.T) {
 		t.Errorf("End follows the newest again, not row %d", events.cursor)
 	}
 }
+
+func TestTheApplicationRunningOutOfMemory(t *testing.T) {
+	m := testModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	started := time.Now().Add(-time.Minute)
+	m.runStarted, m.runFinished = started, time.Time{}
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{"t1": true}
+	m.progress.States["t1"] = &progress.State{Status: "running", StartedAt: started.UnixMilli()}
+	oomAt := started.Add(20 * time.Second)
+	m.Update(services.Lines{Service: app, Gen: m.gen, Lines: []*logformat.Line{
+		logformat.NewLine(oomAt, `Exception in thread "http-nio-8080-Poller" java.lang.OutOfMemoryError: Java heap space`),
+		logformat.NewLine(oomAt.Add(time.Second), "java.lang.OutOfMemoryError: Metaspace"),
+	}})
+	if len(m.outOfMemory) != 1 {
+		t.Fatalf("an application's first OutOfMemoryError in a run is noted, once: %+v", m.outOfMemory)
+	}
+	s := screen(m)
+	for _, want := range []string{"shop ran out of memory",
+		"shop threw java.lang.OutOfMemoryError: Java heap space at " + clock(oomAt) + " while FooTest",
+		"It may no longer answer", "x stops the run."} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the overview lacks %q:\n%s", want, s)
+		}
+	}
+	if card := ansi.Strip(m.testCard(m.entries["t1"], 120)); !strings.Contains(card, "shop ran out of memory while it ran") {
+		t.Errorf("the test's details say the application ran out of memory while it ran:\n%s", card)
+	}
+}

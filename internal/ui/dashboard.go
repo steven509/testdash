@@ -39,6 +39,10 @@ func (m *Model) dashboard(width, height int) string {
 			b.WriteString(strings.Join(wrapLines(style.Muted.Render(why), width-2), "\n") + "\n")
 		}
 	}
+	for _, oom := range m.outOfMemory {
+		b.WriteString("\n" + style.Red.Render(ic.failed+" ") + style.BoldRed.Render(oom.entry.svc.Key+" ran out of memory") + "\n")
+		b.WriteString(strings.Join(wrapLines(style.Muted.Render(oom.String()), width-2), "\n") + "\n")
+	}
 	if m.jvmStopped != "" {
 		b.WriteString("\n" + style.Red.Render(ic.failed+" ") +
 			style.BoldRed.Render("The test JVM stopped while "+someNames(m.jvmStoppedIn)+" ran") + "\n")
