@@ -75,13 +75,17 @@ queries) and a dot for whether it runs.
   messages, a sparkline for each source (tests finishing, Gradle, each log, requests, messages, queries), every
   class on the run's time line (its setup a thin line, then each test coloured by how it did), a live feed of the
   newest from the build and the services, and once the run is done, the slowest tests. Its tabs show each part
-  at full size (below). Before the first run, the last run, and the keys that get you started.
+  at full size (below). Before the first run, the last run, and the keys that get you started. When the
+  application stops while tests run, or its JVM throws an `OutOfMemoryError` and goes on without answering, it
+  says so, with the tests running then; when the test JVM stops, its unfinished tests end as aborted, with
+  Gradle's reason.
 - *A class*: its results and its tests' times as bars.
 - *A test*: its result, its failure with the stack trace (your own frames bright, library frames folded), and
   **what happened during it**: every HTTP request WireMock received, Kafka message, SQL or MongoDB query, Redis
-  command, and warning or error the application logged while it ran, in time order. Select one to see all of
-  it below; `enter` opens it in its service's view, narrowed to the test's time, and `c` copies it: a request
-  as a curl command, a query or command, or a message's payload. On a failed test, `c` copies its failure. `t`
+  command, and warning or error the application logged while it ran, in time order, following the newest while
+  the test runs. Select one to see all of it below; `enter` opens it in its service's view, narrowed to the
+  test's time, and `c` copies it: a request as a curl command, a query or command, or a message's payload. On a
+  failed test, `c` copies its failure. `t`
   (in the tests as well, or a click on the heading) groups the events by the trace they belong to (from
   `traceparent` and B3 headers, Spring Boot's log correlation and sqlcommenter comments): each trace with all of
   its events in the run, those after the test as well, as a consumer or a scheduled job goes on with it, and the
@@ -130,8 +134,12 @@ heading, and `z` gives any of them the whole screen.
 - *Profile*, once profiling is on (`p` there, or the settings), charts the application while tests run: its
   CPU and memory from `docker stats`, and for a JVM, its heap, garbage collection and threads, read from the
   performance counters every JVM keeps (the file `jstat` reads), so there is nothing to set up, even on a
-  JRE-only image. A test's details then say what the application used while it ran: its CPU, how its heap
-  changed and what it collected. `d` asks the JVM for a thread dump, which it writes to its log.
+  JRE-only image. Above the charts, the JVM's version, uptime, main class and options; what its heap keeps after
+  collections, what it has allocated and how fast; its young and full collections with their share of its time
+  and the last one's cause; metaspace and classes; threads, safepoints and compiled methods; and its container's
+  share of its memory, the memory beyond the heap, and network and disk I/O. A test's details then say what the
+  application used while it ran: its CPU, how its heap changed, what it allocated and what it collected. `d`
+  asks the JVM for a thread dump, which it writes to its log.
 
 <p align="center">
   <img src="docs/images/live.png" width="880"
