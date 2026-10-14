@@ -57,6 +57,7 @@ func (m *Model) commands() []command {
 		{"Unselect everything", "Clear the selection", func() tea.Cmd { m.selected = map[string]bool{}; return nil }},
 		{"Choose the test task", "Pick another of the build's test tasks", func() tea.Cmd { m.openTasks(); return nil }},
 		{"List the tests again", "Rediscover the build's tests", m.discover},
+		{"Gradle arguments", "What every run gives Gradle, as -Dname=value", func() tea.Cmd { m.openArgs(); return nil }},
 		{"Show Gradle's output", "What Gradle printed", func() tea.Cmd {
 			m.serviceList.cursor = 0
 			m.setFocus(m.serviceList)

@@ -576,9 +576,9 @@ func (m *Model) discover() tea.Cmd {
 	_ = os.MkdirAll(outputDir, 0o755)
 	m.discovering = true
 	m.addOutput("── listing tests with Gradle ──", "bold")
-	send, discovery := m.send, m.discovery
+	send, discovery, properties := m.send, m.discovery, gradle.BuildProperties(m.opts.ExtraArgs)
 	return tea.Batch(m.spin(), func() tea.Msg {
-		command, err := gradle.DiscoverCommand(filepath.Join(root, "gradlew"), outputDir)
+		command, err := gradle.DiscoverCommand(filepath.Join(root, "gradlew"), outputDir, properties)
 		if err != nil {
 			return discoveredMsg{err: err}
 		}

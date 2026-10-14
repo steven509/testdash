@@ -24,6 +24,12 @@ func TestParseArgs(t *testing.T) {
 	if !reflect.DeepEqual(opts.explicit, []string{"npm", "test", "--watch"}) {
 		t.Errorf("explicit %q", opts.explicit)
 	}
+	soak, err := parseArgs([]string{":app:blackBoxTest", "--tests", "*HeapSoakTest", "-Dbb.soak=true",
+		"-Dbb.soak.queries=/Users/me/export"})
+	if err != nil || !reflect.DeepEqual(soak.tests, []string{"*HeapSoakTest"}) ||
+		!reflect.DeepEqual(soak.extra, []string{":app:blackBoxTest", "-Dbb.soak=true", "-Dbb.soak.queries=/Users/me/export"}) {
+		t.Errorf("system properties go to Gradle as gradlew takes them: %+v %v", soak, err)
+	}
 	if _, err := parseArgs([]string{"--task"}); err == nil {
 		t.Error("--task needs a value")
 	}

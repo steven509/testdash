@@ -1810,3 +1810,51 @@ func TestNoiseEditorShowsTheBuildsConfigFromHere(t *testing.T) {
 		t.Errorf("the build's config is named from where testdash runs:\n%s", s)
 	}
 }
+
+func TestSplitAndJoinArgs(t *testing.T) {
+	line := `-Dbb.soak=true -Dbb.soak.queries='/Users/me/prod export' "-Dname=a \"b\"" -Dx=c\ d --info`
+	want := []string{"-Dbb.soak=true", "-Dbb.soak.queries=/Users/me/prod export", `-Dname=a "b"`, "-Dx=c d", "--info"}
+	args, err := splitArgs(line)
+	if err != nil || strings.Join(args, "|") != strings.Join(want, "|") {
+		t.Fatalf("arguments split as a shell splits them: %q %v", args, err)
+	}
+	if again, err := splitArgs(joinArgs(args)); err != nil || strings.Join(again, "|") != strings.Join(want, "|") {
+		t.Errorf("joined arguments split back the same: %q from %s", again, joinArgs(args))
+	}
+	if _, err := splitArgs(`-Dx='open`); err == nil {
+		t.Error("a quote left open is an error")
+	}
+}
+
+func TestGradleArguments(t *testing.T) {
+	m := testModel(t)
+	m.opts.Command = []string{"true"}
+	m.opts.ExtraArgs = []string{"-Dbb.soak=true", "-Dbb.soak.queries=/Users/me/prod export"}
+	m.dirty = true
+	if s := screen(m); !strings.Contains(s, "with -Dbb.soak=true '-Dbb.soak.queries=/Users/me/prod export'") {
+		t.Errorf("the dashboard says which arguments the runs get:\n%s", s)
+	}
+	runAll(m.startRun(nil))
+	if !strings.HasSuffix(m.runCommand, "true -Dbb.soak=true -Dbb.soak.queries=/Users/me/prod export") {
+		t.Errorf("a run gives Gradle the arguments: %s", m.runCommand)
+	}
+	for m.runner.Running() {
+		time.Sleep(10 * time.Millisecond)
+	}
+	m.Update(runDoneMsg{code: 0})
+	m.openArgs()
+	editor := m.popup.(*argsEditor)
+	if editor.input.Value() != "-Dbb.soak=true '-Dbb.soak.queries=/Users/me/prod export'" {
+		t.Errorf("the arguments are there to change: %s", editor.input.Value())
+	}
+	editor.input.SetValue("-Dbb.soak='open")
+	press(m, "enter")
+	if m.popup == nil || !strings.Contains(screen(m), "a quote is not closed") {
+		t.Errorf("an argument left open is not taken:\n%s", screen(m))
+	}
+	editor.input.SetValue("-Dbb.soak=false --info")
+	press(m, "enter")
+	if m.popup != nil || strings.Join(m.opts.ExtraArgs, " ") != "-Dbb.soak=false --info" {
+		t.Errorf("enter gives the next runs the arguments: %q", m.opts.ExtraArgs)
+	}
+}

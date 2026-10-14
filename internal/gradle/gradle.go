@@ -83,7 +83,9 @@ func IsGradle(command []string) bool {
 }
 
 // DiscoverCommand lists every JUnit Platform Test task's tests into outputDir, one <task>.json each, running none.
-func DiscoverCommand(gradlew, outputDir string) ([]string, error) {
+// DiscoverCommand lists a build's tests; properties are the build's -D and -P arguments, as they may change what
+// the build has.
+func DiscoverCommand(gradlew, outputDir string, properties []string) ([]string, error) {
 	jar, err := ListenerJar()
 	if err != nil {
 		return nil, err
@@ -92,8 +94,27 @@ func DiscoverCommand(gradlew, outputDir string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	return []string{gradlew, "-I", script, "-Ptestdash.discover=" + outputDir, "-Ptestdash.listenerJar=" + jar,
-		"testdashDiscover", "--continue", "--quiet"}, nil
+	command := []string{gradlew, "-I", script, "-Ptestdash.discover=" + outputDir, "-Ptestdash.listenerJar=" + jar}
+	command = append(command, properties...)
+	return append(command, "testdashDiscover", "--continue", "--quiet"), nil
+}
+
+// BuildProperties are the system and project properties among Gradle arguments: -Dname=value, -Pname=value and
+// their long forms, with their values.
+func BuildProperties(args []string) []string {
+	var properties []string
+	for i := 0; i < len(args); i++ {
+		arg := args[i]
+		switch {
+		case arg == "-D" || arg == "-P" || arg == "--system-prop" || arg == "--project-prop":
+			properties = append(properties, args[i:min(i+2, len(args))]...)
+			i++
+		case strings.HasPrefix(arg, "-D") || strings.HasPrefix(arg, "-P") ||
+			strings.HasPrefix(arg, "--system-prop=") || strings.HasPrefix(arg, "--project-prop="):
+			properties = append(properties, arg)
+		}
+	}
+	return properties
 }
 
 // WithListener is the Gradle command with the init script and its properties added after the executable.

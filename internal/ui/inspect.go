@@ -636,7 +636,12 @@ func (m *Model) welcome(width int) string {
 		}
 		b.WriteString(style.Bold.Render(count(len(m.selectable), "test")) + style.Muted.Render(" in ") +
 			style.Bold.Render(count(classes, "class", "classes")) + style.Muted.Render(" in ") +
-			style.Pill(m.testTask.Path, style.Teal, style.Raised) + "\n\n")
+			style.Pill(m.testTask.Path, style.Teal, style.Raised) + "\n")
+		if len(m.opts.ExtraArgs) > 0 {
+			b.WriteString(style.Muted.Render("with ") + style.Cyan.Render(joinArgs(m.opts.ExtraArgs)) +
+				style.Dim.Render("  · ^p Gradle arguments to change") + "\n")
+		}
+		b.WriteString("\n")
 		if last := m.lastRunSummary(width); last != "" {
 			b.WriteString(last + "\n")
 		}

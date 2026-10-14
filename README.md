@@ -219,11 +219,18 @@ testdash                                   # in a Gradle repo: pick from its tes
 testdash --task :app:blackBoxTest          # start on a task
 testdash :app:test --tests '*OrderApiTest' # run these at once, as gradlew would
 testdash --info                            # arguments testdash does not know are passed to Gradle
+testdash :app:test --tests '*SoakTest' -Dsoak=true   # with system properties, for every run
 testdash -- npm test                       # any other command: no test list, the service views still work
 ```
 
 `TESTDASH_KEYCAST=1 testdash` shows each key you press, and what it did, at the bottom of the screen, for screen
 recordings and demos; `TESTDASH_KEYCAST=shortcuts` shows only the shortcuts, leaving out moving and typing.
+
+Arguments for Gradle, such as `-Dname=value` and `-Pname=value`, go with every run, and with listing the tests;
+*Gradle arguments* in the command palette (`ctrl+p`) changes them without starting again. As with gradlew, `-D`
+sets a system property in Gradle, not in the JVM the tests run in: tests see it when the build passes it on, as
+with `systemProperties(System.getProperties().filterKeys { (it as String).startsWith("soak") })` in the Test
+task.
 
 A task path and Gradle's `--tests` filters (as many as you like, with `*` wildcards, a class or a class and
 method, the package left out when the pattern starts with a capital) skip picking: the run starts at once, and
