@@ -180,6 +180,28 @@ type (
 )
 
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if _, ok := msg.(chartStepMsg); ok {
+		m.chartTicking = false
+	}
+	model, cmd := m.update(msg)
+	return model, tea.Batch(cmd, m.nextChartStep())
+}
+
+// chartStepMsg is the moment a rolling chart on the screen moves on a column.
+type chartStepMsg struct{}
+
+// nextChartStep redraws the screen as a rolling chart on it moves on a column, so its columns move evenly, not
+// whenever something else redraws it.
+func (m *Model) nextChartStep() tea.Cmd {
+	if m.chartTicking || m.chartStep <= 0 || !m.running() {
+		return nil
+	}
+	m.chartTicking = true
+	next := m.chartStart.Add((time.Since(m.chartStart)/m.chartStep + 1) * m.chartStep)
+	return tea.Tick(time.Until(next), func(time.Time) tea.Msg { return chartStepMsg{} })
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	m.dirty = true
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
@@ -679,6 +701,7 @@ func (m *Model) terminalProgress() *tea.ProgressBar {
 
 func (m *Model) render() string {
 	m.zones = m.zones[:0]
+	m.chartStep = 0 // a rolling chart drawn says its step
 	if m.width < 50 || m.height < 14 {
 		return style.Muted.Render("testdash needs a terminal of at least 50×14")
 	}

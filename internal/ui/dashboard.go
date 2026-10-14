@@ -402,6 +402,7 @@ func (m *Model) activityGrid(columns int, now time.Time) activityGrid {
 	}
 	window := m.prefs.Window()
 	step := max(time.Millisecond, window/time.Duration(columns))
+	m.chartStep, m.chartStart = step, start
 	first := int(now.Sub(start)/step) - columns + 1 // before the run's start, until a window of it has gone by
 	return activityGrid{start: start, from: start.Add(time.Duration(first) * step), to: now, step: step,
 		columns: columns, window: window}

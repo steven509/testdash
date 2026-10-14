@@ -2045,3 +2045,26 @@ func TestProfileCarriesTheSampleBeforeTheGrid(t *testing.T) {
 	}
 }
 
+func TestRollingChartsRedrawOnEachColumn(t *testing.T) {
+	m := testModel(t)
+	m.runStarted, m.runFinished = time.Now().Add(-5*time.Second), time.Time{}
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	screen(m) // the overview's activity rolls
+	if m.chartStep <= 0 {
+		t.Fatal("drawing a rolling chart says its step")
+	}
+	if cmd := m.nextChartStep(); cmd == nil || !m.chartTicking {
+		t.Error("a redraw is due as the chart moves on a column")
+	}
+	if cmd := m.nextChartStep(); cmd != nil {
+		t.Error("one redraw is due at a time")
+	}
+	m.Update(chartStepMsg{})
+	if !m.chartTicking {
+		t.Error("each step's redraw has the next one follow")
+	}
+	m.runFinished, m.chartTicking = time.Now(), false
+	if cmd := m.nextChartStep(); cmd != nil {
+		t.Error("once the run is over, its charts stand still")
+	}
+}

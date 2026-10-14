@@ -161,6 +161,10 @@ type Model struct {
 
 	activityChartKey, activityChartText string // the activity at full size, likewise
 
+	chartStep    time.Duration // a column of the rolling chart on the screen, as last drawn; 0 without one
+	chartStart   time.Time     // where its columns start from
+	chartTicking bool          // a redraw for its next column is due
+
 	width, height   int
 	spinner         spinner.Model
 	spinning        bool
