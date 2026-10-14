@@ -216,5 +216,19 @@
   "problem": false,
   "logged": false,
   "simple": "coloured INFO line"
+ },
+ {
+  "line": "Terminating due to java.lang.OutOfMemoryError: Java heap space",
+  "record": null,
+  "problem": true,
+  "logged": true,
+  "simple": "Terminating due to java.lang.OutOfMemoryError: Java heap space"
+ },
+ {
+  "line": "Exception in thread \"main\" java.lang.StackOverflowError",
+  "record": null,
+  "problem": true,
+  "logged": true,
+  "simple": "Exception in thread \"main\" java.lang.StackOverflowError"
  }
 ]

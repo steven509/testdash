@@ -64,6 +64,9 @@ func (m *Model) logEvent(entry *svcEntry, lines []*logformat.Line, i int) timeli
 		level, message = record.Level, cleanText(strings.SplitN(record.Message, "\n", 2)[0])
 	} else if line.IsLoggedProblem() {
 		level = "WARN"
+		if strings.Contains(line.Text, "Error:") || strings.Contains(line.Text, "OutOfMemoryError") {
+			level = "ERROR" // as the JVM prints an error it dies of
+		}
 	}
 	color := style.MutedText
 	switch level {

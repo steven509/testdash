@@ -33,6 +33,12 @@ func (m *Model) dashboard(width, height int) string {
 		b.WriteString("\n" + style.Red.Render(ic.failed+" ") + style.BoldRed.Render("The run could not start its containers") + "\n")
 		b.WriteString(strings.Join(wrapLines(style.Muted.Render(m.portConflict), width-2), "\n") + "\n")
 	}
+	if len(m.appsStopped) > 0 {
+		b.WriteString("\n" + style.Red.Render(ic.failed+" ") + style.BoldRed.Render("The application stopped during the run") + "\n")
+		for _, why := range m.appsStopped {
+			b.WriteString(strings.Join(wrapLines(style.Muted.Render(why), width-2), "\n") + "\n")
+		}
+	}
 	if m.jvmStopped != "" {
 		b.WriteString("\n" + style.Red.Render(ic.failed+" ") +
 			style.BoldRed.Render("The test JVM stopped while "+someNames(m.jvmStoppedIn)+" ran") + "\n")

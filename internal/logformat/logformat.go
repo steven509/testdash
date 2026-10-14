@@ -60,8 +60,8 @@ var (
 
 	stackFrame      = regexp.MustCompile(`^\s+(?:at |\.\.\. \d+ )`)
 	exception       = regexp.MustCompile(`^(?:Caused by: |Suppressed: )?(?:[a-z_$][\w$]*\.)+[A-Z][\w$]*(?:Exception|Error|Throwable)\b`)
-	unparsedLevel   = regexp.MustCompile(`\b(FATAL|ERROR|SEVERE|WARN(?:ING)?)\b`)
-	unparsedProblem = regexp.MustCompile(`\b(FATAL|ERROR|SEVERE|WARN(?:ING)?)\b|Exception\b|^\s+at |^Caused by:`)
+	unparsedLevel   = regexp.MustCompile(`\b(FATAL|ERROR|SEVERE|WARN(?:ING)?)\b|\b(OutOfMemory|StackOverflow)Error\b`)
+	unparsedProblem = regexp.MustCompile(`\b(FATAL|ERROR|SEVERE|WARN(?:ING)?)\b|Exception\b|\b(OutOfMemory|StackOverflow)Error\b|^\s+at |^Caused by:`)
 	sgr             = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 )
 

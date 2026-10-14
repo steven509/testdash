@@ -1992,3 +1992,36 @@ func TestTheTestJVMStopping(t *testing.T) {
 		}
 	}
 }
+
+func TestTheApplicationStopping(t *testing.T) {
+	m := testModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	entry := m.serviceEntry(app)
+	m.runStarted, m.runFinished = time.Now().Add(-5*time.Second), time.Time{}
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{"t1": true}
+	m.progress.States["t1"] = &progress.State{Status: "passed"}
+
+	m.Update(appStoppedMsg{entry: entry, exitCode: 143})
+	if len(m.appsStopped) != 0 {
+		t.Errorf("an application stopped once its tests are done is no news: %q", m.appsStopped)
+	}
+	m.Update(services.Lines{Service: app, Gen: m.gen, Lines: []*logformat.Line{logformat.NewLine(time.Now(),
+		"Terminating due to java.lang.OutOfMemoryError: Java heap space")}})
+	m.progress.States["t1"] = &progress.State{Status: "running"}
+	m.Update(appStoppedMsg{entry: entry, exitCode: 3})
+	m.Update(appStoppedMsg{entry: entry, oomKilled: true, exitCode: 137})
+	s := screen(m)
+	for _, want := range []string{"The application stopped during the run",
+		"shop stopped while tests ran (exit code 3, after an OutOfMemoryError in its log)",
+		"shop was killed for using more memory than its container may while tests ran (OOMKilled, exit 137"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("the overview lacks %q:\n%s", want, s)
+		}
+	}
+	if entry.problems != 1 {
+		t.Errorf("the JVM's OutOfMemoryError counts as a problem in its log: %d", entry.problems)
+	}
+}

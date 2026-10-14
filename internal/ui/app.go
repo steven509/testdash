@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -151,6 +152,7 @@ type Model struct {
 	portConflict  string   // why the run could not start its containers
 	jvmStopped    string   // why the test JVM stopped before its tests finished, as Gradle says
 	jvmStoppedIn  []string // the tests it stopped in
+	appsStopped   []string // applications whose containers stopped while tests ran, and why
 	explained     map[string]bool
 	version       int // goes up whenever what a test's details show may have changed
 	activityKey   string
@@ -731,7 +733,7 @@ func (m *Model) launch(filters []string, picked map[string]bool) tea.Cmd {
 	m.runStarted, m.runFinished, m.exitCode = time.Now(), time.Time{}, 0
 	m.runFilters, m.stopRequested, m.runCommit, m.runDirty = filters, false, "", false
 	m.portConflict, m.explained = "", map[string]bool{}
-	m.jvmStopped, m.jvmStoppedIn = "", nil
+	m.jvmStopped, m.jvmStoppedIn, m.appsStopped = "", nil, nil
 	m.progress = progress.New(m.opts.RunDir)
 	m.inRun = map[string]bool{}
 	m.index()
@@ -1208,11 +1210,70 @@ func (m *Model) serviceAdded(service *services.Service) {
 	m.version++
 }
 
-func (m *Model) serviceChanged(service *services.Service) {
+func (m *Model) serviceChanged(service *services.Service) tea.Cmd {
 	entry := m.serviceEntry(service)
 	if entry != nil && service.State() == "previous" {
 		entry.view.clear()
 	}
+	if entry != nil && service.IsApp() && service.State() == "stopped" && m.running() {
+		return m.whyStopped(entry)
+	}
+	return nil
+}
+
+// appStoppedMsg is why an application's container stopped, as Docker has it.
+type appStoppedMsg struct {
+	entry     *svcEntry
+	oomKilled bool
+	exitCode  int
+}
+
+// whyStopped asks Docker why an application's container stopped while the run went on.
+func (m *Model) whyStopped(entry *svcEntry) tea.Cmd {
+	id, ctx := entry.svc.ContainerID(), m.ctx
+	return func() tea.Msg {
+		out, ok := services.Command(ctx, "docker", "inspect", "--format", "{{.State.OOMKilled}} {{.State.ExitCode}}", id)
+		fields := strings.Fields(out)
+		if !ok || len(fields) < 2 {
+			return nil
+		}
+		code, _ := strconv.Atoi(fields[1])
+		return appStoppedMsg{entry: entry, oomKilled: fields[0] == "true", exitCode: code}
+	}
+}
+
+// appStopped says when an application stopped while its tests needed it: when Docker killed it for its memory,
+// or it exited, or was killed, with tests still running. Containers a run stops once its tests are done, as
+// Testcontainers and Compose do, are not news.
+func (m *Model) appStopped(msg appStoppedMsg) {
+	running := false
+	if m.progress != nil {
+		for id, state := range m.progress.States {
+			running = running || state.Status == "running" && m.entries[id] != nil && m.entries[id].IsLeaf()
+		}
+	}
+	var what, details string
+	switch {
+	case msg.oomKilled:
+		what = "was killed for using more memory than its container may"
+		details = fmt.Sprintf("OOMKilled, exit %d", msg.exitCode)
+	case !running || msg.exitCode == 0 || msg.exitCode == 143:
+		return
+	case msg.exitCode == 137:
+		what, details = "was killed", "exit 137, SIGKILL, as when the machine runs out of memory"
+	default:
+		what, details = "stopped", fmt.Sprintf("exit code %d", msg.exitCode)
+	}
+	for _, line := range lastN(msg.entry.lines.all(), 200) {
+		if strings.Contains(line.Text, "java.lang.OutOfMemoryError") {
+			details += ", after an OutOfMemoryError in its log"
+			break
+		}
+	}
+	text := msg.entry.svc.Key + " " + what + " while tests ran (" + details + ")"
+	m.appsStopped = append(m.appsStopped, text)
+	m.notifyFor(text, "The application stopped", "error", 20*time.Second)
+	m.version++
 }
 
 func (m *Model) serviceLines(msg services.Lines) {

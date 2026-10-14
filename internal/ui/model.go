@@ -262,7 +262,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case services.Added:
 		m.serviceAdded(msg.Service)
 	case services.Changed:
-		m.serviceChanged(msg.Service)
+		return m, m.serviceChanged(msg.Service)
+	case appStoppedMsg:
+		m.appStopped(msg)
 	case services.Lines:
 		m.serviceLines(msg)
 	case profileMsg:
