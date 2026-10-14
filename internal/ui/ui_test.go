@@ -1858,3 +1858,37 @@ func TestGradleArguments(t *testing.T) {
 		t.Errorf("enter gives the next runs the arguments: %q", m.opts.ExtraArgs)
 	}
 }
+
+func TestLiveLeavesOutNoise(t *testing.T) {
+	m := testModel(t)
+	m.opts.Noise = []noise.Rule{{Service: "wiremock", Match: `^GET /health`}}
+	m.setNoise()
+	started := time.Now().Add(-2 * time.Second)
+	mock := services.NewService("wiremock", "wiremock", "wiremock/wiremock:3")
+	m.Update(services.Added{Service: mock})
+	request := func(id, method, url string, ms int) wiremock.ServeEvent {
+		raw, _ := jsonx.ParseObject([]byte(`{"request":{"method":"` + method + `","url":"` + url + `"},"wasMatched":true}`))
+		return wiremock.ServeEvent{ID: id, At: started.Add(time.Duration(ms) * time.Millisecond), Method: method,
+			URL: url, Status: 200, Matched: true, Raw: raw}
+	}
+	m.Update(wiremockMsg{view: m.serviceEntry(mock).view.(*wiremockView), poll: wiremockPoll{hasEvents: true,
+		events: []wiremock.ServeEvent{request("e1", "GET", "/health", 100), request("e2", "POST", "/payments", 200),
+			request("e3", "GET", "/health", 300)}}})
+	runAll(finishRun(t, m, started))
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	m.inspector.overview.setActive("live")
+	screen(m)
+	press(m, "3")
+	if s := screen(m); strings.Contains(s, "GET /health") || !strings.Contains(s, "POST /payments") ||
+		!strings.Contains(s, "2 noise") || !strings.Contains(s, "n  Show noise") {
+		t.Fatalf("Live leaves noise out, and says how much:\n%s", s)
+	}
+	press(m, "n")
+	if s := screen(m); !strings.Contains(s, "GET /health") || !strings.Contains(s, "with noise") {
+		t.Errorf("n shows the noise:\n%s", s)
+	}
+	press(m, "n")
+	if s := screen(m); strings.Contains(s, "GET /health") {
+		t.Errorf("n again leaves it out:\n%s", s)
+	}
+}

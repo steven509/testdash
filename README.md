@@ -122,7 +122,7 @@ heading, and `z` gives any of them the whole screen.
 - *Live* is everything the run showed in one place, newest last: Gradle's output, the applications' logs, the
   other services' warnings, requests, messages and queries. It follows the newest while the cursor is on the
   last row. Select a row to see all of it beside; `enter` opens it in its service, `/` filters, `c` copies and
-  `t` narrows everything to its trace.
+  `t` narrows everything to its trace. Like the other views, it leaves noise out, saying how much; `n` shows it.
 - *Activity* draws each source as a bar chart, its top labelled with its peak rate. While the run goes it shows
   the last 30 seconds, ending now at the right and moving left as it goes; `+` and `−` show from 10 seconds to
   5 minutes (kept in the settings). Once the run is over, it shows all of it.
@@ -175,7 +175,7 @@ file is up, the dashboard says which container (or process) holds the port.
 |---|---|
 | Anywhere | `tab` next panel · `1` `2` `3` tests, services, details · `r` run the selection, or all · `F` run the failed tests (before a run, the last run's) · `x` stop (twice kills) · `z` zoom the details · `c` the run's whole command · `H` the runs before · `ctrl+t` test task · `ctrl+p` or `:` commands · `ctrl+s` settings · `?` keys · `q` quit, after asking · a right click offers what can be done with what is under it |
 | Tests | ↑/↓ move · ←/→ collapse, expand · `space` select · `a` select all shown · `u` unselect the tests that passed · `enter` run the selection, or with none, this test or class · `/` filter · `s` all, failed, not passed or flaky · Esc clears the filter, then the selection |
-| The run's details | `[` `]` or ←/→ the overview, Live, Activity and Classes tabs · Esc back to the overview · `+` `−` the activity's window while the run goes · Live: ↑/↓ a row, its details beside it · `enter` open it in its service · `/` filter · `c` copy it · `t` its trace everywhere · `N` hide things like it as noise |
+| The run's details | `[` `]` or ←/→ the overview, Live, Activity and Classes tabs · Esc back to the overview · `+` `−` the activity's window while the run goes · Live: ↑/↓ a row, its details beside it · `enter` open it in its service · `/` filter · `c` copy it · `t` its trace everywhere · `n` show the noise · `N` hide things like it as noise |
 | A test's details | ↑/↓ the events while it ran · `enter` open the event in its service · `t` by trace or in time order · `c` copy it · `N` hide things like it as noise · `tab` the event, the stack trace · Esc back |
 | Logs | `/` filter (regex, on the whole line) · `e` errors only · `f` follow · `w` wrap · `v` simplified or full lines · `t` time · `n` show the noise · `N` hide what the filter finds as noise · ←/→ scroll sideways · Home/End |
 | Services | `[` `]` or ←/→ tabs · ↑/↓ a row, its details beside it · `n` show the noise · `N` hide things like the row as noise · `c` copy it · `t` every service to the row's trace, or every trace again · WireMock `u` unmatched only · Kafka `h` a message's headers or value, `enter` on a topic shows its messages · SQL `v` formatted or raw |

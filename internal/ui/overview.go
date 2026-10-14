@@ -35,8 +35,12 @@ func (in *inspector) renderOverview(m *Model, r rect) []string {
 	meta := ""
 	if in.overview.activeID() == "live" {
 		in.live.build(m)
-		meta = style.Muted.Render(count(len(in.live.events), "event")) +
-			modeChips(in.live.filterLabel(), traceChip(m.traceFilter))
+		meta = count(len(in.live.events), "event")
+		if in.live.noise > 0 {
+			meta += ", " + number(in.live.noise) + " noise"
+		}
+		meta = style.Muted.Render(meta) + modeChips(in.live.filterLabel(), traceChip(m.traceFilter),
+			map[bool]string{true: "with noise"}[in.live.showNoise])
 	}
 	out, rest := in.overview.tabLine(m, r, meta, func() { m.setFocus(in.overviewMain()) })
 	switch in.overview.activeID() {
@@ -125,6 +129,8 @@ type liveView struct {
 	input      *lineInput
 	inputShown bool
 	pattern    *regexp.Regexp
+	showNoise  bool
+	noise      int // noise left out of the events
 	events     []timelineEvent
 	builtAt    int       // the model's version it was built at
 	builtWhen  time.Time // and when
@@ -137,7 +143,7 @@ func newLiveView() *liveView {
 }
 
 func (v *liveView) build(m *Model) {
-	filter := v.filterLabel() + "/" + m.traceFilter
+	filter := fmt.Sprintf("%s/%s/%v", v.filterLabel(), m.traceFilter, v.showNoise)
 	if v.builtFor == filter && (v.builtAt == m.version || m.running() && time.Since(v.builtWhen) < liveBuildEvery) {
 		return
 	}
@@ -145,7 +151,9 @@ func (v *liveView) build(m *Model) {
 	key, following := v.table.cursorKey(), v.table.cursor >= len(v.table.rows)-1
 	v.events = nil
 	v.table.clear()
-	for _, ev := range m.feed(maxFeed) {
+	events, noise := m.feed(maxFeed, v.showNoise)
+	v.noise = noise
+	for _, ev := range events {
 		if v.pattern != nil && !v.pattern.MatchString(ev.source+" "+ansi.Strip(ev.summary)) {
 			continue
 		}
@@ -255,6 +263,7 @@ func (v *liveView) levels(m *Model, focus any, tabs []binding) []level {
 			ev, ok := v.selected()
 			return ev.trace, ok && ev.trace.TraceID != ""
 		}),
+		noiseToggle(&v.showNoise, func() int { return v.noise }, func() {}),
 		clear, m.allTracesOnEsc())
 	if ev, ok := v.selected(); ok && ev.copy.text != "" {
 		l.bindings = append(l.bindings, bind("c", "Copy "+ev.copy.name, func() tea.Cmd {

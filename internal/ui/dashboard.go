@@ -548,7 +548,8 @@ func (m *Model) activityRows(grid activityGrid) []activityRow {
 // liveFeed is the newest of everything the run shows, one line each.
 func (m *Model) liveFeed(n, width int) string {
 	var b strings.Builder
-	for _, ev := range m.feed(n) {
+	events, _ := m.feed(n, false)
+	for _, ev := range events {
 		b.WriteString(fit(style.Dim.Render(clock(ev.at))+" "+feedSource(ev)+" "+ev.summary, width, true) + "\n")
 	}
 	if b.Len() == 0 {

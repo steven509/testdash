@@ -4,6 +4,7 @@ import (
 	"image/color"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/steven509/testdash/internal/databases"
 	"github.com/steven509/testdash/internal/kafka"
@@ -101,14 +102,18 @@ func (m *Model) gradleEvent(line *logformat.Line) timelineEvent {
 
 // feed is everything the run has shown, in time order: Gradle's output, the applications' log records, the
 // other services' warnings and errors, requests, messages and queries, each labelled with where it came from.
-// It holds the newest limit of each source, and of them all, and leaves out noise and other traces than the one
-// the services are narrowed to.
-func (m *Model) feed(limit int) []timelineEvent {
+// It holds the newest limit of each source, and of them all, and leaves out other traces than the one the
+// services are narrowed to, and noise unless withNoise, saying how much noise it left out of its stretch.
+func (m *Model) feed(limit int, withNoise bool) (events []timelineEvent, noise int) {
 	since := m.runStarted.Add(-correlationSlack)
-	var events []timelineEvent
-	from := func(source string, c color.Color) func(timelineEvent) bool {
-		return func(ev timelineEvent) bool {
+	var noiseAt []time.Time
+	from := func(source string, c color.Color) func(timelineEvent, bool) bool {
+		return func(ev timelineEvent, isNoise bool) bool {
 			if ev.at.Before(since) || m.traceFilter != "" && ev.trace.TraceID != m.traceFilter {
+				return false
+			}
+			if isNoise && !withNoise {
+				noiseAt = append(noiseAt, ev.at)
 				return false
 			}
 			ev.source, ev.color = source, c
@@ -128,30 +133,29 @@ func (m *Model) feed(limit int) []timelineEvent {
 		}
 	}
 	output, gradle := m.output.all(), from("gradle", style.Primary)
-	logs(output, func(line *logformat.Line) bool {
-		return strings.TrimSpace(cleanText(line.Text)) != "" && !m.outputView.isNoise(line)
-	}, func(i int) bool { return gradle(m.gradleEvent(output[i])) })
+	logs(output, func(line *logformat.Line) bool { return strings.TrimSpace(cleanText(line.Text)) != "" },
+		func(i int) bool { return gradle(m.gradleEvent(output[i]), m.outputView.isNoise(output[i])) })
 	for _, entry := range m.orderedServices() {
 		key := entry.svc.Key
 		switch v := entry.view.(type) {
 		case *wiremockView:
 			add := from(key, style.Teal)
 			for i, n := len(v.events)-1, 0; i >= 0 && n < limit; i-- {
-				if !v.isNoise(v.events[i]) && add(requestEvent(entry, v, v.events[i])) {
+				if add(requestEvent(entry, v, v.events[i]), v.isNoise(v.events[i])) {
 					n++
 				}
 			}
 		case *kafkaView:
 			add := from(key, style.Pink)
 			for i, n := len(v.messages)-1, 0; i >= 0 && n < limit; i-- {
-				if !v.isNoise(v.messages[i]) && add(messageEvent(entry, v, v.messages[i])) {
+				if add(messageEvent(entry, v, v.messages[i]), v.isNoise(v.messages[i])) {
 					n++
 				}
 			}
 		case *dbView:
 			add := from(key, style.Orange)
 			for i, n := len(v.queries)-1, 0; i >= 0 && n < limit; i-- {
-				if !v.isNoise(v.queries[i]) && add(queryEvent(entry, v, v.queries[i])) {
+				if add(queryEvent(entry, v, v.queries[i]), v.isNoise(v.queries[i])) {
 					n++
 				}
 			}
@@ -162,11 +166,18 @@ func (m *Model) feed(limit int) []timelineEvent {
 			}
 			add, lines := from(key, c), entry.lines.all()
 			log, _ := entry.view.(*logView)
-			logs(lines, func(line *logformat.Line) bool {
-				return feedWorthy(line, app) && (log == nil || !log.isNoise(line))
-			}, func(i int) bool { return add(m.logEvent(entry, lines, i)) })
+			logs(lines, func(line *logformat.Line) bool { return feedWorthy(line, app) }, func(i int) bool {
+				return add(m.logEvent(entry, lines, i), log != nil && log.isNoise(lines[i]))
+			})
 		}
 	}
 	sort.SliceStable(events, func(i, j int) bool { return events[i].at.Before(events[j].at) })
-	return lastN(events, limit)
+	trimmed := len(events) > limit
+	events = lastN(events, limit)
+	for _, at := range noiseAt {
+		if !trimmed || !at.Before(events[0].at) { // what is older than the stretch shown is not counted
+			noise++
+		}
+	}
+	return events, noise
 }
