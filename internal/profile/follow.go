@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// jvmEvery is how often the JVM's counters are read: a docker exec each time.
-const jvmEvery = 2 * time.Second
+// JVMEvery is how often the JVM's counters are read: a docker exec each time.
+const JVMEvery = 2 * time.Second
 
 // Follow samples a container until ctx ends or still says it is no longer the one to follow: its usage as docker
 // stats streams it, about each second, and when it runs a JVM, the JVM's counters every two seconds.
@@ -45,10 +45,10 @@ func Follow(ctx context.Context, container string, still func() bool, usage func
 }
 
 // followJVM reads the JVM's counters while there is a JVM to read, looking for one again now and then, as the
-// application may start its JVM some time after its container.
+// application may start its JVM some time after its container, and adds up what it allocates.
 func followJVM(ctx context.Context, container string, jvm func(JVM)) {
-	file := ""
-	for wait := time.Duration(0); ; wait = jvmEvery {
+	file, last := "", JVM{}
+	for wait := time.Duration(0); ; wait = JVMEvery {
 		select {
 		case <-ctx.Done():
 			return
@@ -66,7 +66,11 @@ func followJVM(ctx context.Context, container string, jvm func(JVM)) {
 			file = "" // the JVM went, or another took its place
 			continue
 		}
+		if !last.At.IsZero() && last.Started.Equal(j.Started) {
+			j.Allocated = last.Allocated + Allocation(last, j)
+		}
 		jvm(j)
+		last = j
 	}
 }
 
