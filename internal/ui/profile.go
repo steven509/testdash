@@ -158,7 +158,8 @@ func (m *Model) profileChart(width, height int) string {
 	var all [][]chartRow
 	rows := 0
 	for _, entry := range apps {
-		all = append(all, profileRows(entry.profile, grid))
+		sampling := entry.profile.cancel != nil && entry.svc.State() == "running"
+		all = append(all, profileRows(entry.profile, grid, sampling))
 		rows += len(all[len(all)-1])
 	}
 	each := max(1, (height-4-len(apps))/max(1, rows)) // the lines each chart may have, under the headings, over the axis and keys
@@ -172,19 +173,28 @@ func (m *Model) profileChart(width, height int) string {
 }
 
 // profileRows chart an application's samples on a grid: the highest of each measure in each column, and the time
-// collecting garbage in it.
-func profileRows(p *appProfile, grid activityGrid) []chartRow {
+// collecting garbage in it. A measure holds from one sample to the next, from the last sample before the grid, so
+// it leaves at the left a column at a time, as it comes in at the right; while it is sampling, it goes on to the
+// grid's end, however long the next sample takes.
+func profileRows(p *appProfile, grid activityGrid, sampling bool) []chartRow {
 	fixed := func(c color.Color) func(int) color.Color { return func(int) color.Color { return c } }
 	mib := func(n int) string { return sizeLabel(int64(n) << 20) }
 	cpu, memory, sampled := make([]int, grid.columns), make([]int, grid.columns), make([]bool, grid.columns)
-	for _, u := range p.usage {
-		if i := grid.column(u.At); i >= 0 {
+	var before *profile.Usage
+	for k, u := range p.usage {
+		switch i := grid.column(u.At); {
+		case i >= 0:
 			cpu[i], memory[i] = max(cpu[i], int(math.Round(u.CPU))), max(memory[i], int(u.Memory>>20))
 			sampled[i] = true
+		case grid.before(u.At):
+			before = &p.usage[k]
 		}
 	}
+	if before != nil && !sampled[0] {
+		cpu[0], memory[0], sampled[0] = int(math.Round(before.CPU)), int(before.Memory>>20), true
+	}
 	if len(p.usage) > 0 {
-		holdBetween(sampled, grid.holdsOn(p.usage[len(p.usage)-1].At), cpu, memory)
+		holdBetween(sampled, sampling || grid.holdsOn(p.usage[len(p.usage)-1].At), cpu, memory)
 	}
 	var cpuNow, memoryNow string
 	if len(p.usage) > 0 {
@@ -201,9 +211,13 @@ func profileRows(p *appProfile, grid activityGrid) []chartRow {
 	}
 	heap, gc, threads := make([]int, grid.columns), make([]int, grid.columns), make([]int, grid.columns)
 	sampled = make([]bool, grid.columns)
+	var earlier *profile.JVM
 	for i, j := range p.jvm {
 		c := grid.column(j.At)
 		if c < 0 {
+			if grid.before(j.At) {
+				earlier = &p.jvm[i]
+			}
 			continue
 		}
 		heap[c], threads[c] = max(heap[c], int(j.HeapUsed>>20)), max(threads[c], int(j.Threads))
@@ -212,7 +226,10 @@ func profileRows(p *appProfile, grid activityGrid) []chartRow {
 			gc[c] += max(0, int((j.GCTime() - p.jvm[i-1].GCTime()).Milliseconds())) // a new JVM starts again
 		}
 	}
-	holdBetween(sampled, grid.holdsOn(p.jvm[len(p.jvm)-1].At), heap, threads)
+	if earlier != nil && !sampled[0] {
+		heap[0], threads[0], sampled[0] = int(earlier.HeapUsed>>20), int(earlier.Threads), true
+	}
+	holdBetween(sampled, sampling || grid.holdsOn(p.jvm[len(p.jvm)-1].At), heap, threads)
 	last := p.jvm[len(p.jvm)-1]
 	return append(rows,
 		chartRow{activityRow{label: "Heap", counts: heap, colorOf: fixed(style.Teal),
@@ -247,10 +264,14 @@ func holdBetween(sampled []bool, toEnd bool, series ...[]int) {
 	}
 }
 
-// holdsOn is whether a measure whose newest sample is at a moment goes on to the grid's end: it was sampled after
-// it, or so shortly before that the next sample is still to come.
+// before is whether a moment of the run is before the grid, as when it moved on past it.
+func (g activityGrid) before(at time.Time) bool {
+	return at.Before(g.from) && !at.Before(g.start)
+}
+
+// holdsOn is whether a measure whose newest sample is at a moment went on to the grid's end: it was sampled after.
 func (g activityGrid) holdsOn(newest time.Time) bool {
-	return !newest.Before(g.to.Add(-3 * time.Second))
+	return !newest.Before(g.to)
 }
 
 // sizeLabel is a size in MiB, or GiB from one.

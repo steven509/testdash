@@ -2025,3 +2025,23 @@ func TestTheApplicationStopping(t *testing.T) {
 		t.Errorf("the JVM's OutOfMemoryError counts as a problem in its log: %d", entry.problems)
 	}
 }
+
+func TestProfileCarriesTheSampleBeforeTheGrid(t *testing.T) {
+	start := time.Now().Add(-time.Minute)
+	grid := activityGrid{start: start, from: start.Add(30 * time.Second), to: start.Add(60 * time.Second),
+		step: time.Second, columns: 30, window: 30 * time.Second}
+	p := &appProfile{jvm: []profile.JVM{
+		{At: start.Add(10 * time.Second), HeapUsed: 50 << 20, Threads: 20}, // long gone
+		{At: start.Add(28 * time.Second), HeapUsed: 100 << 20, Threads: 30},
+		{At: start.Add(35 * time.Second), HeapUsed: 120 << 20, Threads: 31},
+	}, usage: []profile.Usage{{At: start.Add(29 * time.Second), CPU: 40, Memory: 300 << 20}}}
+	rows := profileRows(p, grid, true)
+	heap, cpu := rows[2].counts, rows[0].counts
+	if heap[0] != 100 || heap[4] != 100 || heap[5] != 120 || heap[29] != 120 {
+		t.Errorf("the heap holds from the last sample before the grid, then the next, to the end: %v", heap)
+	}
+	if cpu[0] != 40 || cpu[29] != 40 {
+		t.Errorf("CPU holds from its sample before the grid while sampling goes on: %v", cpu)
+	}
+}
+
