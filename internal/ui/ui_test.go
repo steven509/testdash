@@ -1941,7 +1941,7 @@ func TestProfile(t *testing.T) {
 		"Collections       GarbageFirst · 3 young, 45ms · no full · 2 concurrent cycles · 0.1% of its time · last: G1",
 		"Metaspace         90 MiB of 96 MiB · 15,000 classes loaded, 20 unloaded",
 		"Threads           20 daemons, at most 40 live, 60 started · 80 safepoints, 120ms · 5,000 methods compiled",
-		"Container         5% of its memory · 41 processes",
+		"Container         5% of its memory · 41 processes and threads",
 		"I/O               network 5 KiB in, 2 MiB out · disk 934 KiB read, 0 B written"} {
 		if !strings.Contains(s, want) {
 			t.Errorf("the Profile tab sums up the application, lacking %q:\n%s", want, s)

@@ -14,7 +14,7 @@ type Usage struct {
 	Memory, MemoryLimit   int64   // bytes
 	NetIn, NetOut         int64   // bytes since the container started
 	DiskRead, DiskWritten int64   // bytes since the container started
-	Processes             int
+	Processes             int     // processes and their threads, as docker counts PIDs
 }
 
 // JVM is a JVM's counters at a moment.

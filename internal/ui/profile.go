@@ -262,7 +262,7 @@ func profileStats(p *appProfile, sampling bool, now time.Time, width int) []stri
 		if outside := u.Memory - last.HeapCommitted - last.MetaspaceCommitted; len(p.jvm) > 0 && outside > 0 {
 			beyond = "about " + sizeLabel(outside) + " beyond the heap and metaspace"
 		}
-		line("Container", memory, beyond, count(u.Processes, "process", "processes"))
+		line("Container", memory, beyond, number(u.Processes)+" processes and threads")
 		line("I/O", "network "+bytesLabel(u.NetIn)+" in, "+bytesLabel(u.NetOut)+" out",
 			"disk "+bytesLabel(u.DiskRead)+" read, "+bytesLabel(u.DiskWritten)+" written")
 	}
