@@ -2086,3 +2086,43 @@ func TestRollingChartsRedrawOnEachColumn(t *testing.T) {
 		t.Error("once the run is over, its charts stand still")
 	}
 }
+
+func TestTestEventsFollowTheNewest(t *testing.T) {
+	m := testModel(t)
+	m.Update(tea.WindowSizeMsg{Width: 180, Height: 50})
+	app := services.NewService("shop", "app", "shop:latest")
+	m.Update(services.Added{Service: app})
+	started := time.Now().Add(-time.Minute).Truncate(time.Second)
+	m.runStarted, m.runFinished = started, time.Time{}
+	m.progress = progress.New(m.opts.RunDir)
+	m.inRun = map[string]bool{"t1": true}
+	m.progress.States["t1"] = &progress.State{Status: "running", StartedAt: started.UnixMilli()}
+	logged := func(from, n int) {
+		var lines []*logformat.Line
+		for i := from; i < from+n; i++ {
+			lines = append(lines, logformat.NewLine(started.Add(time.Duration(i)*time.Second),
+				fmt.Sprintf("2026-10-14 16:03:%02d,000 ERROR [main] c.a.Shop - failure %d", i, i)))
+		}
+		m.Update(services.Lines{Service: app, Gen: m.gen, Lines: lines})
+	}
+	logged(0, 30)
+	m.tree.cursor = "t1"
+	events := m.inspector.events
+	if s := screen(m); events.cursor != 29 || !strings.Contains(s, "failure 29") {
+		t.Fatalf("a test's events open on the newest, not row %d:\n%s", events.cursor, s)
+	}
+	logged(30, 5)
+	if screen(m); events.cursor != 34 {
+		t.Errorf("the events follow the newest as they come, not row %d", events.cursor)
+	}
+	press(m, "3", "up")
+	logged(35, 5)
+	if screen(m); !strings.Contains(events.cursorKey(), "failure 33") {
+		t.Errorf("the events stay on the one selected above the newest, not %q", events.cursorKey())
+	}
+	press(m, "end")
+	logged(40, 1)
+	if screen(m); events.cursor != 40 {
+		t.Errorf("End follows the newest again, not row %d", events.cursor)
+	}
+}

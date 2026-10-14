@@ -165,7 +165,11 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 		return in.card.view(r.w, r.h)
 	}
 	if in.builtFor != entry.ID || in.builtAt != m.version {
-		if in.builtFor != entry.ID {
+		// in time order, the events open on the newest and follow it while the cursor is on it; by trace, they
+		// open on the first trace
+		fresh := in.builtFor != entry.ID
+		key, following := in.events.cursorKey(), !in.byTrace && (fresh || in.events.cursor >= len(in.events.rows)-1)
+		if fresh {
 			in.events.cursor, in.events.offset = 0, 0
 		}
 		in.timeline = m.timeline(w)
@@ -174,9 +178,15 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 		}
 		in.builtFor, in.builtAt = entry.ID, m.version
 		in.events.clear()
-		for i, ev := range in.timeline {
-			in.events.addRow(fmt.Sprint(i), style.Dim.Render(clockMillis(ev.at)),
+		for _, ev := range in.timeline {
+			in.events.addRow(eventKey(ev), style.Dim.Render(clockMillis(ev.at)),
 				style.Pill(ev.source, ev.color, style.Tint(ev.color)), ev.summary)
+		}
+		switch {
+		case following:
+			in.events.moveCursor(len(in.events.rows) - 1)
+		case !fresh:
+			in.events.selectKey(key)
 		}
 	}
 	cardLines := len(in.card.lines(r.w))
@@ -212,7 +222,7 @@ func (in *inspector) renderTest(m *Model, entry *catalog.Entry, r rect) []string
 	}
 	selected := in.events.cursor
 	if selected >= 0 && selected < len(in.timeline) {
-		in.event.set(fmt.Sprintf("%s/%d", entry.ID, selected), in.timeline[selected].detail())
+		in.event.set(entry.ID+"/"+in.events.cursorKey(), in.timeline[selected].detail())
 	}
 	out = append(out, style.LineText.Render(strings.Repeat("─", r.w)))
 	area := rect{r.x, r.y + len(out), r.w, detailHeight}
